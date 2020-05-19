@@ -1,18 +1,19 @@
-// Copyright 2019-2020 Parity Technologies (UK) Ltd.
 // This file is part of Substrate.
 
-// Substrate is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Copyright (C) 2019-2020 Parity Technologies (UK) Ltd.
+// SPDX-License-Identifier: Apache-2.0
 
-// Substrate is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU General Public License for more details.
-
-// You should have received a copy of the GNU General Public License
-// along with Substrate.  If not, see <http://www.gnu.org/licenses/>.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// 	http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 //! # Transaction Payment Module
 //!
@@ -24,10 +25,10 @@
 //!     chance to be included by the transaction queue.
 //!
 //! Additionally, this module allows one to configure:
-//!   - The mapping between one unit of weight to one unit of fee via [`WeightToFee`].
+//!   - The mapping between one unit of weight to one unit of fee via [`Trait::WeightToFee`].
 //!   - A means of updating the fee for the next block, via defining a multiplier, based on the
 //!     final state of the chain at the end of the previous block. This can be configured via
-//!     [`FeeMultiplierUpdate`]
+//!     [`Trait::FeeMultiplierUpdate`]
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
@@ -92,20 +93,6 @@ decl_module! {
 			NextFeeMultiplier::mutate(|fm| {
 				*fm = T::FeeMultiplierUpdate::convert(*fm)
 			});
-		}
-
-		fn on_runtime_upgrade() -> Weight {
-			// TODO: Remove this code after on-chain upgrade from u32 to u64 weights
-			use sp_runtime::Fixed64;
-			use frame_support::migration::take_storage_value;
-			if let Some(old_next_fee_multiplier) = take_storage_value::<Fixed64>(b"TransactionPayment", b"NextFeeMultiplier", &[]) {
-				let raw_multiplier = old_next_fee_multiplier.into_inner() as i128;
-				// Fixed64 used 10^9 precision, where Fixed128 uses 10^18, so we need to add 9 zeros.
-				let new_raw_multiplier: i128 = raw_multiplier.saturating_mul(1_000_000_000);
-				let new_next_fee_multiplier: Fixed128 = Fixed128::from_parts(new_raw_multiplier);
-				NextFeeMultiplier::put(new_next_fee_multiplier);
-			}
-			0
 		}
 	}
 }
@@ -842,40 +829,6 @@ mod tests {
 					.is_ok()
 			);
 			assert_eq!(Balances::free_balance(2), 200 - 5 - 10 - 100 - 5);
-		});
-	}
-
-	// TODO Remove after u32 to u64 weights upgrade
-	#[test]
-	fn upgrade_to_fixed128_works() {
-		// TODO You can remove this from dev-dependencies after removing this test
-		use sp_storage::Storage;
-		use sp_runtime::Fixed64;
-		use frame_support::storage::generator::StorageValue;
-		use frame_support::traits::OnRuntimeUpgrade;
-		use core::num::NonZeroI128;
-
-		let mut s = Storage::default();
-
-		let original_multiplier = Fixed64::from_rational(1, 2);
-
-		let data = vec![
-			(
-				NextFeeMultiplier::storage_value_final_key().to_vec(),
-				original_multiplier.encode().to_vec()
-			),
-		];
-
-		s.top = data.into_iter().collect();
-
-		sp_io::TestExternalities::new(s).execute_with(|| {
-			let old_value = NextFeeMultiplier::get();
-			assert!(old_value != Fixed128::from_rational(1, NonZeroI128::new(2).unwrap()));
-
-			// Convert Fixed64(.5) to Fixed128(.5)
-			TransactionPayment::on_runtime_upgrade();
-			let new_value = NextFeeMultiplier::get();
-			assert_eq!(new_value, Fixed128::from_rational(1, NonZeroI128::new(2).unwrap()));
 		});
 	}
 }

@@ -1,19 +1,20 @@
-// Copyright 2018-2020 Parity Technologies (UK) Ltd.
 // This file is part of Substrate.
 
-// Substrate is free software: you can redistribute it and/or modify
+// Copyright (C) 2018-2020 Parity Technologies (UK) Ltd.
+// SPDX-License-Identifier: GPL-3.0-or-later WITH Classpath-exception-2.0
+
+// This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
 // the Free Software Foundation, either version 3 of the License, or
 // (at your option) any later version.
 
-// Substrate is distributed in the hope that it will be useful,
+// This program is distributed in the hope that it will be useful,
 // but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
 // GNU General Public License for more details.
 
 // You should have received a copy of the GNU General Public License
-// along with Substrate.  If not, see <http://www.gnu.org/licenses/>.
-
+// along with this program. If not, see <https://www.gnu.org/licenses/>.
 //! Service integration test utils.
 
 use std::iter;
@@ -36,6 +37,7 @@ use sc_service::{
 	RuntimeGenesis,
 	Role,
 	Error,
+	TaskType,
 };
 use sp_blockchain::HeaderBackend;
 use sc_network::{multiaddr, Multiaddr};
@@ -139,7 +141,7 @@ fn node_config<G: RuntimeGenesis + 'static, E: ChainSpecExtension + Clone + 'sta
 	index: usize,
 	spec: &GenericChainSpec<G, E>,
 	role: Role,
-	task_executor: Arc<dyn Fn(Pin<Box<dyn futures::Future<Output = ()> + Send>>) + Send + Sync>,
+	task_executor: Arc<dyn Fn(Pin<Box<dyn futures::Future<Output = ()> + Send>>, TaskType) + Send + Sync>,
 	key_seed: Option<String>,
 	base_port: u16,
 	root: &TempDir,
@@ -190,11 +192,11 @@ fn node_config<G: RuntimeGenesis + 'static, E: ChainSpecExtension + Clone + 'sta
 		chain_spec: Box::new((*spec).clone()),
 		wasm_method: sc_service::config::WasmExecutionMethod::Interpreted,
 		execution_strategies: Default::default(),
-		unsafe_rpc_expose: false,
 		rpc_http: None,
 		rpc_ws: None,
 		rpc_ws_max_connections: None,
 		rpc_cors: None,
+		rpc_methods: Default::default(),
 		prometheus_config: None,
 		telemetry_endpoints: None,
 		telemetry_external_transport: None,
@@ -255,7 +257,7 @@ impl<G, E, F, L, U> TestNet<G, E, F, L, U> where
 		for (key, authority) in authorities {
 			let task_executor = {
 				let executor = executor.clone();
-				Arc::new(move |fut: Pin<Box<dyn futures::Future<Output = ()> + Send>>| executor.spawn(fut.unit_error().compat()))
+				Arc::new(move |fut: Pin<Box<dyn futures::Future<Output = ()> + Send>>, _| executor.spawn(fut.unit_error().compat()))
 			};
 			let node_config = node_config(
 				self.nodes,
@@ -279,7 +281,7 @@ impl<G, E, F, L, U> TestNet<G, E, F, L, U> where
 		for full in full {
 			let task_executor = {
 				let executor = executor.clone();
-				Arc::new(move |fut: Pin<Box<dyn futures::Future<Output = ()> + Send>>| executor.spawn(fut.unit_error().compat()))
+				Arc::new(move |fut: Pin<Box<dyn futures::Future<Output = ()> + Send>>, _| executor.spawn(fut.unit_error().compat()))
 			};
 			let node_config = node_config(self.nodes, &self.chain_spec, Role::Full, task_executor, None, self.base_port, &temp);
 			let addr = node_config.network.listen_addresses.iter().next().unwrap().clone();
@@ -295,7 +297,7 @@ impl<G, E, F, L, U> TestNet<G, E, F, L, U> where
 		for light in light {
 			let task_executor = {
 				let executor = executor.clone();
-				Arc::new(move |fut: Pin<Box<dyn futures::Future<Output = ()> + Send>>| executor.spawn(fut.unit_error().compat()))
+				Arc::new(move |fut: Pin<Box<dyn futures::Future<Output = ()> + Send>>, _| executor.spawn(fut.unit_error().compat()))
 			};
 			let node_config = node_config(self.nodes, &self.chain_spec, Role::Light, task_executor, None, self.base_port, &temp);
 			let addr = node_config.network.listen_addresses.iter().next().unwrap().clone();

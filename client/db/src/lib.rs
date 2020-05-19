@@ -1,19 +1,20 @@
-// Copyright 2017-2020 Parity Technologies (UK) Ltd.
 // This file is part of Substrate.
 
-// Substrate is free software: you can redistribute it and/or modify
+// Copyright (C) 2017-2020 Parity Technologies (UK) Ltd.
+// SPDX-License-Identifier: GPL-3.0-or-later WITH Classpath-exception-2.0
+
+// This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
 // the Free Software Foundation, either version 3 of the License, or
 // (at your option) any later version.
 
-// Substrate is distributed in the hope that it will be useful,
+// This program is distributed in the hope that it will be useful,
 // but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
 // GNU General Public License for more details.
 
 // You should have received a copy of the GNU General Public License
-// along with Substrate.  If not, see <http://www.gnu.org/licenses/>.
-
+// along with this program. If not, see <https://www.gnu.org/licenses/>.
 //! Client backend that is backed by a database.
 //!
 //! # Canonicality vs. Finality
@@ -317,6 +318,18 @@ impl DatabaseSettingsSrc {
 	}
 }
 
+impl std::fmt::Display for DatabaseSettingsSrc {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		let name = match self {
+			DatabaseSettingsSrc::RocksDb { .. } => "RocksDb",
+			DatabaseSettingsSrc::ParityDb { .. } => "ParityDb",
+			DatabaseSettingsSrc::SubDb { .. } => "SubDb",
+			DatabaseSettingsSrc::Custom(_) => "Custom",
+		};
+		write!(f, "{}", name)
+	}
+}
+
 pub(crate) mod columns {
 	pub const META: u32 = crate::utils::COLUMN_META;
 	pub const STATE: u32 = 1;
@@ -356,7 +369,7 @@ pub struct BlockchainDb<Block: BlockT> {
 	db: Arc<dyn Database<DbHash>>,
 	meta: Arc<RwLock<Meta<NumberFor<Block>, Block::Hash>>>,
 	leaves: RwLock<LeafSet<Block::Hash, NumberFor<Block>>>,
-	header_metadata_cache: HeaderMetadataCache<Block>,
+	header_metadata_cache: Arc<HeaderMetadataCache<Block>>,
 }
 
 impl<Block: BlockT> BlockchainDb<Block> {
@@ -367,7 +380,7 @@ impl<Block: BlockT> BlockchainDb<Block> {
 			db,
 			leaves: RwLock::new(leaves),
 			meta: Arc::new(RwLock::new(meta)),
-			header_metadata_cache: HeaderMetadataCache::default(),
+			header_metadata_cache: Arc::new(HeaderMetadataCache::default()),
 		})
 	}
 
@@ -493,7 +506,7 @@ impl<Block: BlockT> HeaderMetadata<Block> for BlockchainDb<Block> {
 	type Error = sp_blockchain::Error;
 
 	fn header_metadata(&self, hash: Block::Hash) -> Result<CachedHeaderMetadata<Block>, Self::Error> {
-		self.header_metadata_cache.header_metadata(hash).or_else(|_| {
+		self.header_metadata_cache.header_metadata(hash).map_or_else(|| {
 			self.header(BlockId::hash(hash))?.map(|header| {
 				let header_metadata = CachedHeaderMetadata::from(&header);
 				self.header_metadata_cache.insert_header_metadata(
@@ -502,7 +515,7 @@ impl<Block: BlockT> HeaderMetadata<Block> for BlockchainDb<Block> {
 				);
 				header_metadata
 			}).ok_or(ClientError::UnknownBlock(format!("header not found in db: {}", hash)))
-		})
+		}, Ok)
 	}
 
 	fn insert_header_metadata(&self, hash: Block::Hash, metadata: CachedHeaderMetadata<Block>) {
@@ -819,6 +832,7 @@ impl<Block: BlockT> Backend<Block> {
 		let offchain_storage = offchain::LocalStorage::new(db.clone());
 		let changes_tries_storage = DbChangesTrieStorage::new(
 			db,
+			blockchain.header_metadata_cache.clone(),
 			columns::META,
 			columns::CHANGES_TRIE,
 			columns::KEY_LOOKUP,
@@ -1578,10 +1592,16 @@ impl<Block: BlockT> sc_client_api::backend::Backend<Block> for Backend<Block> {
 			_ => {}
 		}
 
-		match self.blockchain.header(block) {
-			Ok(Some(ref hdr)) => {
-				let hash = hdr.hash();
-				if !self.have_state_at(&hash, *hdr.number()) {
+		let hash = match block {
+			BlockId::Hash(h) => h,
+			BlockId::Number(n) => self.blockchain.hash(n)?.ok_or_else(||
+				sp_blockchain::Error::UnknownBlock(format!("Unknown block number {}", n))
+			)?,
+		};
+
+		match self.blockchain.header_metadata(hash) {
+			Ok(ref hdr) => {
+				if !self.have_state_at(&hash, hdr.number) {
 					return Err(
 						sp_blockchain::Error::UnknownBlock(
 							format!("State already discarded for {:?}", block)
@@ -1589,8 +1609,8 @@ impl<Block: BlockT> sc_client_api::backend::Backend<Block> for Backend<Block> {
 					)
 				}
 				if let Ok(()) = self.storage.state_db.pin(&hash) {
-					let root = hdr.state_root();
-					let db_state = DbState::<Block>::new(self.storage.clone(), *root);
+					let root = hdr.state_root;
+					let db_state = DbState::<Block>::new(self.storage.clone(), root);
 					let state = RefTrackingState::new(
 						db_state,
 						self.storage.clone(),
@@ -1615,22 +1635,17 @@ impl<Block: BlockT> sc_client_api::backend::Backend<Block> for Backend<Block> {
 					)
 				}
 			},
-			Ok(None) => Err(
-				sp_blockchain::Error::UnknownBlock(
-					format!("Unknown state for block {:?}", block)
-				)
-			),
 			Err(e) => Err(e),
 		}
 	}
 
 	fn have_state_at(&self, hash: &Block::Hash, number: NumberFor<Block>) -> bool {
 		if self.is_archive {
-			match self.blockchain.header(BlockId::Hash(hash.clone())) {
-				Ok(Some(header)) => {
+			match self.blockchain.header_metadata(hash.clone()) {
+				Ok(header) => {
 					sp_state_machine::Storage::get(
 						self.storage.as_ref(),
-						&header.state_root(),
+						&header.state_root,
 						(&[], None),
 					).unwrap_or(None).is_some()
 				},

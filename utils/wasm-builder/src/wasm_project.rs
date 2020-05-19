@@ -1,18 +1,19 @@
-// Copyright 2019-2020 Parity Technologies (UK) Ltd.
 // This file is part of Substrate.
 
-// Substrate is free software: you can redistribute it and/or modify
-// it under the terms of the GNU General Public License as published by
-// the Free Software Foundation, either version 3 of the License, or
-// (at your option) any later version.
+// Copyright (C) 2019-2020 Parity Technologies (UK) Ltd.
+// SPDX-License-Identifier: Apache-2.0
 
-// Substrate is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-// GNU General Public License for more details.
-
-// You should have received a copy of the GNU General Public License
-// along with Substrate.  If not, see <http://www.gnu.org/licenses/>.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// 	http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 use crate::write_file_if_changed;
 
@@ -37,9 +38,9 @@ use itertools::Itertools;
 pub struct WasmBinaryBloaty(PathBuf);
 
 impl WasmBinaryBloaty {
-	/// Returns the path to the bloaty wasm binary.
-	pub fn wasm_binary_bloaty_path(&self) -> String {
-		self.0.display().to_string().replace('\\', "/")
+	/// Returns the escaped path to the bloaty wasm binary.
+	pub fn wasm_binary_bloaty_path_escaped(&self) -> String {
+		self.0.display().to_string().escape_default().to_string()
 	}
 }
 
@@ -48,8 +49,13 @@ pub struct WasmBinary(PathBuf);
 
 impl WasmBinary {
 	/// Returns the path to the wasm binary.
-	pub fn wasm_binary_path(&self) -> String {
-		self.0.display().to_string().replace('\\', "/")
+	pub fn wasm_binary_path(&self) -> &Path {
+		&self.0
+	}
+
+	/// Returns the escaped path to the wasm binary.
+	pub fn wasm_binary_path_escaped(&self) -> String {
+		self.0.display().to_string().escape_default().to_string()
 	}
 }
 
@@ -302,15 +308,25 @@ fn create_wasm_workspace_project(wasm_workspace: &Path, workspace_root_path: &Pa
 	).expect("WASM workspace `Cargo.toml` writing can not fail; qed");
 }
 
+/// Find a package by the given `manifest_path` in the metadata.
+///
+/// Panics if the package could not be found.
+fn find_package_by_manifest_path<'a>(
+	manifest_path: &Path,
+	crate_metadata: &'a cargo_metadata::Metadata,
+) -> &'a cargo_metadata::Package {
+	crate_metadata.packages
+		.iter()
+		.find(|p| p.manifest_path == manifest_path)
+		.expect("Wasm project exists in its own metadata; qed");
+}
+
 /// Get a list of enabled features for the project.
 fn project_enabled_features(
 	cargo_manifest: &Path,
 	crate_metadata: &cargo_metadata::Metadata,
 ) -> Vec<String> {
-	let package = crate_metadata.packages
-		.iter()
-		.find(|p| p.manifest_path == cargo_manifest)
-		.expect("Wasm project exists in its own metadata; qed");
+	let package = find_package_by_manifest_path(cargo_manifest, crate_metadata);
 
 	let mut enabled_features = package.features.keys()
 		.filter(|f| {
@@ -332,6 +348,16 @@ fn project_enabled_features(
 	enabled_features
 }
 
+/// Returns if the project has the `runtime-wasm` feature
+fn has_runtime_wasm_feature(
+	cargo_manifest: &Path,
+	crate_metadata: &cargo_metadata::Metadata,
+) -> bool {
+	let package = find_package_by_manifest_path(cargo_manifest, crate_metadata);
+
+	package.features.keys().any(|k| k == "runtime-wasm")
+}
+
 /// Create the project used to build the wasm binary.
 ///
 /// # Returns
@@ -346,9 +372,14 @@ fn create_project(
 	let wasm_binary = get_wasm_binary_name(cargo_manifest);
 	let project_folder = wasm_workspace.join(&crate_name);
 
-	fs::create_dir_all(project_folder.join("src")).expect("Wasm project dir create can not fail; qed");
+	fs::create_dir_all(project_folder.join("src"))
+		.expect("Wasm project dir create can not fail; qed");
 
-	let enabled_features = project_enabled_features(&cargo_manifest, &crate_metadata);
+	let mut enabled_features = project_enabled_features(&cargo_manifest, &crate_metadata);
+
+	if has_runtime_wasm_feature(cargo_manifest, crate_metadata) {
+		enabled_features.push("runtime-wasm");
+	}
 
 	write_file_if_changed(
 		project_folder.join("Cargo.toml"),

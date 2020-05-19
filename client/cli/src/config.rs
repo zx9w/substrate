@@ -1,35 +1,36 @@
-// Copyright 2020 Parity Technologies (UK) Ltd.
 // This file is part of Substrate.
 
-// Substrate is free software: you can redistribute it and/or modify
+// Copyright (C) 2020 Parity Technologies (UK) Ltd.
+// SPDX-License-Identifier: GPL-3.0-or-later WITH Classpath-exception-2.0
+
+// This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
 // the Free Software Foundation, either version 3 of the License, or
 // (at your option) any later version.
 
-// Substrate is distributed in the hope that it will be useful,
+// This program is distributed in the hope that it will be useful,
 // but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
 // GNU General Public License for more details.
 
 // You should have received a copy of the GNU General Public License
-// along with Substrate.  If not, see <http://www.gnu.org/licenses/>.
-
+// along with this program. If not, see <https://www.gnu.org/licenses/>.
 //! Configuration trait for a CLI based on substrate
 
+use crate::arg_enums::Database;
 use crate::error::Result;
 use crate::{
-	init_logger, ImportParams, KeystoreParams, NetworkParams, NodeKeyParams,
+	init_logger, DatabaseParams, ImportParams, KeystoreParams, NetworkParams, NodeKeyParams,
 	OffchainWorkerParams, PruningParams, SharedParams, SubstrateCli,
 };
-use crate::arg_enums::Database;
 use app_dirs::{AppDataType, AppInfo};
 use names::{Generator, Name};
-use sc_service::config::{
-	WasmExecutionMethod, Role, OffchainWorkerConfig,
-	Configuration, DatabaseConfig, ExtTransport, KeystoreConfig, NetworkConfiguration,
-	NodeKeyConfig, PrometheusConfig, PruningMode, TelemetryEndpoints, TransactionPoolOptions,
-};
 use sc_client_api::execution_extensions::ExecutionStrategies;
+use sc_service::config::{
+	Configuration, DatabaseConfig, ExtTransport, KeystoreConfig, NetworkConfiguration,
+	NodeKeyConfig, OffchainWorkerConfig, PrometheusConfig, PruningMode, Role, RpcMethods,
+	TaskType, TelemetryEndpoints, TransactionPoolOptions, WasmExecutionMethod,
+};
 use sc_service::{ChainSpec, TracingReceiver};
 use std::future::Future;
 use std::net::SocketAddr;
@@ -75,8 +76,12 @@ pub trait CliConfiguration: Sized {
 
 	/// Get the NodeKeyParams for this object
 	fn node_key_params(&self) -> Option<&NodeKeyParams> {
-		self.network_params()
-			.map(|x| &x.node_key_params)
+		self.network_params().map(|x| &x.node_key_params)
+	}
+
+	/// Get the DatabaseParams for this object
+	fn database_params(&self) -> Option<&DatabaseParams> {
+		self.import_params().map(|x| &x.database_params)
 	}
 
 	/// Get the base path of the configuration (if any)
@@ -152,33 +157,39 @@ pub trait CliConfiguration: Sized {
 
 	/// Get the database cache size.
 	///
-	/// By default this is retrieved from `ImportParams` if it is available. Otherwise its `None`.
+	/// By default this is retrieved from `DatabaseParams` if it is available. Otherwise its `None`.
 	fn database_cache_size(&self) -> Result<Option<usize>> {
-		Ok(self.import_params()
+		Ok(self.database_params()
 			.map(|x| x.database_cache_size())
 			.unwrap_or(Default::default()))
 	}
 
 	/// Get the database backend variant.
 	///
-	/// By default this is retrieved from `ImportParams` if it is available. Otherwise its `None`.
+	/// By default this is retrieved from `DatabaseParams` if it is available. Otherwise its `None`.
 	fn database(&self) -> Result<Option<Database>> {
-		Ok(self.import_params().map(|x| x.database()))
+		Ok(self.database_params().and_then(|x| x.database()))
 	}
 
-	/// Get the database configuration.
-	///
-	/// By default this is retrieved from `SharedParams`
-	fn database_config(&self,
+	/// Get the database configuration object for the parameters provided
+	fn database_config(
+		&self,
 		base_path: &PathBuf,
 		cache_size: usize,
 		database: Database,
 	) -> Result<DatabaseConfig> {
-		Ok(self.shared_params().database_config(
-			base_path,
-			cache_size,
-			database,
-		))
+		Ok(match database {
+			Database::RocksDb => DatabaseConfig::RocksDb {
+				path: base_path.join("db"),
+				cache_size,
+			},
+			Database::SubDb => DatabaseConfig::SubDb {
+				path: base_path.join("subdb"),
+			},
+			Database::ParityDb => DatabaseConfig::ParityDb {
+				path: base_path.join("paritydb"),
+			},
+		})
 	}
 
 	/// Get the state cache size.
@@ -255,10 +266,11 @@ pub trait CliConfiguration: Sized {
 		Ok(Default::default())
 	}
 
-	/// Returns `Ok(true) if potentially unsafe RPC is to be exposed.
+	/// Returns the RPC method set to expose.
 	///
-	/// By default this is `false`.
-	fn unsafe_rpc_expose(&self) -> Result<bool> {
+	/// By default this is `RpcMethods::Auto` (unsafe RPCs are denied iff
+	/// `{rpc,ws}_external` returns true, respectively).
+	fn rpc_methods(&self) -> Result<RpcMethods> {
 		Ok(Default::default())
 	}
 
@@ -313,7 +325,7 @@ pub trait CliConfiguration: Sized {
 	fn offchain_worker(&self, role: &Role) -> Result<OffchainWorkerConfig> {
 		self.offchain_worker_params()
 			.map(|x| x.offchain_worker(role))
-			.unwrap_or_else(|| { Ok(OffchainWorkerConfig::default()) })
+			.unwrap_or_else(|| Ok(OffchainWorkerConfig::default()))
 	}
 
 	/// Returns `Ok(true)` if authoring should be forced
@@ -385,7 +397,7 @@ pub trait CliConfiguration: Sized {
 	fn create_configuration<C: SubstrateCli>(
 		&self,
 		cli: &C,
-		task_executor: Arc<dyn Fn(Pin<Box<dyn Future<Output = ()> + Send>>) + Send + Sync>,
+		task_executor: Arc<dyn Fn(Pin<Box<dyn Future<Output = ()> + Send>>, TaskType) + Send + Sync>,
 	) -> Result<Configuration> {
 		let is_dev = self.is_dev()?;
 		let chain_id = self.chain_id(is_dev)?;
@@ -439,7 +451,7 @@ pub trait CliConfiguration: Sized {
 			execution_strategies: self.execution_strategies(is_dev)?,
 			rpc_http: self.rpc_http()?,
 			rpc_ws: self.rpc_ws()?,
-			unsafe_rpc_expose: self.unsafe_rpc_expose()?,
+			rpc_methods: self.rpc_methods()?,
 			rpc_ws_max_connections: self.rpc_ws_max_connections()?,
 			rpc_cors: self.rpc_cors(is_dev)?,
 			prometheus_config: self.prometheus_config()?,
@@ -461,9 +473,12 @@ pub trait CliConfiguration: Sized {
 
 	/// Get the filters for the logging.
 	///
+	/// This should be a list of comma-separated values.
+	/// Example: `foo=trace,bar=debug,baz=info`
+	///
 	/// By default this is retrieved from `SharedParams`.
-	fn log_filters(&self) -> Result<Option<String>> {
-		Ok(self.shared_params().log_filters())
+	fn log_filters(&self) -> Result<String> {
+		Ok(self.shared_params().log_filters().join(","))
 	}
 
 	/// Initialize substrate. This must be done only once.
@@ -474,12 +489,12 @@ pub trait CliConfiguration: Sized {
 	/// 2. Raise the FD limit
 	/// 3. Initialize the logger
 	fn init<C: SubstrateCli>(&self) -> Result<()> {
-		let logger_pattern = self.log_filters()?.unwrap_or_default();
+		let logger_pattern = self.log_filters()?;
 
 		sp_panic_handler::set(C::support_url(), C::impl_version());
 
 		fdlimit::raise_fd_limit();
-		init_logger(logger_pattern.as_str());
+		init_logger(&logger_pattern);
 
 		Ok(())
 	}
