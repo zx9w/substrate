@@ -318,7 +318,7 @@ fn find_package_by_manifest_path<'a>(
 	crate_metadata.packages
 		.iter()
 		.find(|p| p.manifest_path == manifest_path)
-		.expect("Wasm project exists in its own metadata; qed");
+		.expect("Wasm project exists in its own metadata; qed")
 }
 
 /// Get a list of enabled features for the project.
@@ -378,7 +378,7 @@ fn create_project(
 	let mut enabled_features = project_enabled_features(&cargo_manifest, &crate_metadata);
 
 	if has_runtime_wasm_feature(cargo_manifest, crate_metadata) {
-		enabled_features.push("runtime-wasm");
+		enabled_features.push("runtime-wasm".into());
 	}
 
 	write_file_if_changed(
