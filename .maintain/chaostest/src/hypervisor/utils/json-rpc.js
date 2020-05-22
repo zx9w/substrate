@@ -11,7 +11,7 @@ const getChainBlockHeight = (url, port) => new Promise((resolve, reject) => {
 
   request(options, (error, _response, body) => {
     if (error) {
-      console.log('errror requesting jsonRPC', error)
+      console.log('Error requesting chain block height', error)
       reject(error)
     } else {
       const data = JSON.parse(body)

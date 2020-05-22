@@ -3,13 +3,11 @@ const Deployment = require('../../hypervisor/deployment')
 const CONFIG = require('../../config')
 
 class CleanCommand extends Command {
-
   async run() {
     const {flags} = this.parse(CleanCommand)
-    const {args} = this.parse(CleanCommand)
     const namespace = flags.namespace || CONFIG.namespace
 
-    // delete corresponding namespace, default to CONFIG.namespace
+    // Delete corresponding namespace, default to CONFIG.namespace
     try {
         if (namespace) {
             await Deployment.cleanup(namespace)

@@ -2,7 +2,6 @@ const {Command, flags} = require('@oclif/command')
 const Deployment = require('../../hypervisor/deployment')
 
 class SpawnCommand extends Command {
-
   async run() {
     const {flags} = this.parse(SpawnCommand)
     const {args} = this.parse(SpawnCommand)
@@ -13,7 +12,7 @@ class SpawnCommand extends Command {
     const node = flags.node || 1
 
     try {
-        // check/create namespace
+        // Check/Create namespace
         await Deployment.readOrCreateNamespace(namespace)
         const chainName = args.chainName
         if (chainName) {

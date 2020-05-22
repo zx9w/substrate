@@ -28,41 +28,63 @@ USAGE
 <!-- usagestop -->
 # Commands
 <!-- commands -->
-* [`chaostest hello`](#chaostest-hello)
-* [`chaostest help [COMMAND]`](#chaostest-help-command)
+* [`chaostest spawn`](#chaostest-spawn)
+* [`chaostest singlenodeheight`](#chaostest-singlenodeheight)
+* [`chaostest clean`](#chaostest-clean)
 
-## `chaostest hello`
+## `chaostest spawn`
 
-Describe the command here
+Spawn a testnet based on your local k8s configuration. Could be either a dev node, a two node alicebob chain, a customized chain with various validators/fullnodes
 
 ```
 USAGE
-  $ chaostest hello
+  $ chaostest spawn [ARGUMENTS] [FLAGS]
 
-OPTIONS
-  -n, --name=name  name to print
+Arguments
+  dev,  a single fullnode in --dev mode
+  alicebob, a two nodes private chain with Alice as bootnode and Bob as validator
+  [chainName], a customized chain deployed with -v numbers of validators and -n numbers of fullnodes
 
+Flags
+  --image, -i, the image tag of the certain substrate version you want to deploy
+  --port, -p, the port to expose when image is deployed in a pod
+  --namespace, the desired namespace to deploy on
+  --validator, -v, the number of substrate validators to deploy
+  --node, -n, the number of full nodes, if not set but exists, default to 1
+  
 DESCRIPTION
   ...
   Extra documentation goes here
 ```
 
-_See code: [src/commands/hello.js](https://github.com/HarryHong/chaostest/blob/v0.0.0/src/commands/hello.js)_
+_See code: [src/commands/spawn/index.js](https://github.com/paritytech/substrate/blob/harry/chaostest-init/.maintain/chaostest/src/commands/spawn/index.js)_
 
-## `chaostest help [COMMAND]`
+## `chaostest singlenodeheight`
 
-display help for chaostest
+Test against a fullnode on --dev mode to check if it can successfully produce blocks to a certain height
 
 ```
 USAGE
-  $ chaostest help [COMMAND]
+  $ chaostest singlenodeheight [FLAGS]
 
-ARGUMENTS
-  COMMAND  command to show help for
-
-OPTIONS
-  --all  see all commands in CLI
+FLAGS
+  -h , the desired height of blocks to check if reachable
+  -t, the wait time out before it halts the polling
 ```
 
-_See code: [@oclif/plugin-help](https://github.com/oclif/plugin-help/blob/v2.2.3/src/commands/help.ts)_
+_See code: [src/commands/singlenodeheight/index.js](https://github.com/paritytech/substrate/blob/harry/chaostest-init/.maintain/chaostest/src/commands/singlenodeheight/index.js)_
+
+## `chaostest clean`
+
+Clean up the k8s deployment by namespace
+
+```
+USAGE
+  $ chaostest clean [FLAGS]
+
+FLAGS
+  -n , the desired namespace to delete on your k8s cluster
+```
+
+_See code: [src/commands/clean/index.js](https://github.com/paritytech/substrate/blob/harry/chaostest-init/.maintain/chaostest/src/commands/clean/index.js)_
 <!-- commandsstop -->
