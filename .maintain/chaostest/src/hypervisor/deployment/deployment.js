@@ -1,5 +1,5 @@
 const k8s = require('./k8s')
-const CONFIG = require('../../CONFIG')
+const CONFIG = require('../../config')
 const { pollUntil } = require('../utils/wait')
 
 const readOrCreateNamespace = async (namespace) => {
