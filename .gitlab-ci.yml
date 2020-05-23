@@ -505,6 +505,7 @@ chaos-test-singlenodeheight:
     - npm link
     - chaostest spawn dev -i $CONTAINER_IMAGE:$VERSION
     - chaostest singlenodeheight -h 30
+  after_script:
     - chaostest clean
 
 trigger-contracts-ci:
