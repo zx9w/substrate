@@ -16,7 +16,12 @@ class Config {
                     throw err
                 }
             }  else {
-                Object.assign(this, JSON.parse(data));
+                try {
+                    Object.assign(this, JSON.parse(data));
+                } catch (error) {
+                    console.log(`config file is corrupted, resetting...`)
+                    this.reset()
+                }
             };
         });
     };
@@ -31,6 +36,22 @@ class Config {
             if (err) throw err;
             console.log('Configuration updated');
         });
+    }
+
+    async setNameSpace(namespace) {
+        this.namespace = namespace
+        this.update()
+    }
+
+    async addNode(node) {
+        if (!this.nodes || Array.isArray(this.nodes)) {
+            this.nodes = []
+        }
+        if (node.nodeType === 'bootnode') {
+            this.bootnode = node
+        }
+        this.nodes.push(node)
+        this.update()
     }
 
     async reset() {

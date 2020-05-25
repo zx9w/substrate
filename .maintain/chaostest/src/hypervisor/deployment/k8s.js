@@ -25,7 +25,7 @@ const readNameSpace = async namespace => {
 }
 
 const createPod = async (nodeSpec, namespace) => {
-    const {label, nodeId, image, args, ports} = nodeSpec
+    const {label, nodeId, image, args, port} = nodeSpec
     const spec = {
         metadata: {
           labels: {
@@ -39,7 +39,7 @@ const createPod = async (nodeSpec, namespace) => {
               image: image,
               imagePullPolicy: 'Always',
               name: nodeId,
-              ports: ports,
+              ports: [{containerPort: port}],
               args: args
             }
           ]
