@@ -6,7 +6,6 @@ A cli for chaos testing on substrate
 [![oclif](https://img.shields.io/badge/cli-oclif-brightgreen.svg)](https://oclif.io)
 [![Version](https://img.shields.io/npm/v/chaostest.svg)](https://npmjs.org/package/chaostest)
 [![Downloads/week](https://img.shields.io/npm/dw/chaostest.svg)](https://npmjs.org/package/chaostest)
-[![License](https://img.shields.io/npm/l/chaostest.svg)](https://github.com/HarryHong/chaostest/blob/master/package.json)
 
 <!-- toc -->
 * [Usage](#usage)

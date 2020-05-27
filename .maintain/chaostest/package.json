@@ -38,7 +38,6 @@
   "keywords": [
     "oclif"
   ],
-  "license": "GNU",
   "main": "src/index.js",
   "oclif": {
     "commands": "./src/commands",
