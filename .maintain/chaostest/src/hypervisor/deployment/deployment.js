@@ -8,7 +8,7 @@ const readOrCreateNamespace = async (namespace) => {
         console.log('Reading namespace')
         await k8s.readNameSpace(namespace)  // if namespace is available, do not create here
     } catch (error) {
-        console.log('Namespace not presented, creating...')
+        console.log('Namespace not present, creating...')
         await k8s.createNameSpace(namespace)
     }
     CONFIG.setNameSpace(namespace)
