@@ -480,6 +480,7 @@ pr-docker-build:            &pr-docker-build
       --tag $CONTAINER_IMAGE:$VERSION
       --file $DOCKERFILE .
     - docker push $CONTAINER_IMAGE:$VERSION
+  after_script:
     - docker logout
 
 #### stage:                        chaos
@@ -493,7 +494,7 @@ chaos-test-singlenodeheight:
     DOCKERFILE:                    $PRODUCT.Dockerfile
     CONTAINER_IMAGE:               paritypr/$PRODUCT
     KEEP_NAMESPACE:                0
-    NAMESPACE:                     "substrate-ci-${CI_COMMIT_SHORT_SHA}"
+    NAMESPACE:                     "substrate-ci-${CI_COMMIT_SHORT_SHA}-${CI_PIPELINE_ID}"
   environment:
     name:                          parity-chaosnet
   image:                           parity/chaostools:latest

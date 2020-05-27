@@ -1,5 +1,6 @@
 const k8s = require('@kubernetes/client-node')
 const CONFIG = require('../../config')
+const { isFunction } = require('../utils/utils')
 
 // load k8s
 const kc = new k8s.KubeConfig()
@@ -97,7 +98,10 @@ const startForwardServer =  async (namespace, pod, port, onReady) => {
 
     server.listen(port, '127.0.0.1', ()=> {
         console.log('Forwarding server started, ready to connect')
-        onReady()
+        // Optional onReady hook when server started
+        if (onReady && isFunction(onReady)) {
+            onReady()
+        }
     });
 }
 

@@ -34,7 +34,7 @@ USAGE
 
 ## `chaostest spawn`
 
-Spawn a testnet based on your local k8s configuration. Could be either a dev node, a two node alicebob chain, a customized chain with various validators/fullnodes
+Spawn a testnet based on your local k8s configuration. Could be either a dev node, a two node alicebob chain or a customized chain with various validators/fullnodes.
 
 ```
 USAGE
@@ -61,7 +61,7 @@ _See code: [src/commands/spawn/index.js](https://github.com/paritytech/substrate
 
 ## `chaostest singlenodeheight`
 
-Test against a fullnode on --dev mode to check if it can successfully produce blocks to a certain height
+Test against a fullnode on --dev mode to check if it can successfully produce blocks to a certain height.
 
 ```
 USAGE
@@ -76,7 +76,7 @@ _See code: [src/commands/singlenodeheight/index.js](https://github.com/paritytec
 
 ## `chaostest clean`
 
-Clean up the k8s deployment by namespace
+Clean up the k8s deployment by namespace.
 
 ```
 USAGE

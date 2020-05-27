@@ -21,7 +21,7 @@ The state could include informations such as:
         podname,
         ip,
         port,
-        validator,
+        nodeType: 'validator' | 'bootnode' | ,
         privateKey (validator only),
         publicKey (validator only)
     }]
@@ -30,4 +30,5 @@ The state could include informations such as:
 
 # TODO
 k8s configuration
+chainspec
 chaos-agent
