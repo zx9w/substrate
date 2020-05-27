@@ -1,3 +1,3 @@
 const deployment = require('./deployment')
-module.exports = {deployment}
 
+module.exports = {deployment}
