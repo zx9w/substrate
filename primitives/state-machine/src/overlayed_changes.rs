@@ -220,14 +220,15 @@ impl OverlayedChangeSet {
 
 	#[must_use = "A change was registered, so this value MUST be modified."]
 	fn modify(&mut self, key: &[u8], at_extrinsic: Option<u32>) -> &mut OverlayedValue {
-		let first_write_in_tx = self.dirty_keys
-			.last()
-			.expect("Modifications only allowed in open tx.")
-			.insert(key.to_vec());
+		let first_write_in_tx = if let Some(dirty_keys) = self.dirty_keys.last() {
+			dirty_keys.insert(key.to_vec())
+		} else {
+			false
+		};
 
 		let value = self.changes.entry(key.to_vec()).or_insert_with(Default::default);
 
-		if first_write_in_tx {
+		if first_write_in_tx || value.value.is_empty() {
 			value.value.push(Default::default());
 			value.extrinsics.push(Default::default());
 		}
