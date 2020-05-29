@@ -66,11 +66,17 @@ pub struct OverlayedChanges {
 #[derive(Debug, Default, Clone)]
 #[cfg_attr(test, derive(PartialEq))]
 pub struct OverlayedValue {
+	transactions: Vec<InnerValue>,
+}
+
+#[derive(Debug, Default, Clone)]
+#[cfg_attr(test, derive(PartialEq))]
+struct InnerValue {
 	/// Current value. None if value has been deleted. One value per open nested transaction.
-	value: Vec<Option<StorageValue>>,
+	value: Option<StorageValue>,
 	/// The set of extrinsic indices where the values has been changed.
 	/// Is filled only if runtime has announced changes trie support.
-	extrinsics: Vec<BTreeSet<u32>>,
+	extrinsics: BTreeSet<u32>,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -187,25 +193,27 @@ impl std::iter::FromIterator<(StorageKey, OverlayedValue)> for OverlayedChangeSe
 impl OverlayedValue {
 	/// The most recent value contained in this overlay.
 	pub fn value(&self) -> Option<&StorageValue> {
-		self.value.last()
+		self.transactions.last()
 			.expect("A StorageValue is always initialized with one value.\
 			The last element is never removed as those are committed changes.")
+			.value
 			.as_ref()
 	}
 
 	/// List of indices of extrinsics which modified the value using this overlay.
 	pub fn extrinsics(&self) -> impl Iterator<Item=&u32> {
-		self.extrinsics.iter().flatten().unique()
+		self.transactions.iter().flat_map(|t| t.extrinsics.iter()).unique()
 	}
 
 	fn value_mut(&mut self) -> &mut Option<StorageValue> {
-		&mut self.value.last()
+		&mut self.transactions.last()
 			.expect("A StorageValue is always initialized with one value.\
 			The last element is never removed as those are committed changes.")
+			.value
 	}
 
 	fn extrinsics_mut(&mut self) -> &mut BTreeSet<u32> {
-		self.extrinsics.last_mut().expect("")
+		&mut self.transactions.last().expect("").extrinsics
 	}
 }
 
@@ -228,9 +236,8 @@ impl OverlayedChangeSet {
 
 		let value = self.changes.entry(key.to_vec()).or_insert_with(Default::default);
 
-		if first_write_in_tx || value.value.is_empty() {
-			value.value.push(Default::default());
-			value.extrinsics.push(Default::default());
+		if first_write_in_tx || value.transactions.is_empty() {
+			value.transactions.push(Default::default())
 		}
 
 		if let Some(extrinsic) = at_extrinsic {
@@ -254,13 +261,12 @@ impl OverlayedChangeSet {
 
 	fn rollback_transaction(&mut self) {
 		self.pop_dirty_keys(|key, value| {
-			value.value.pop();
-			value.extrinsics.pop();
+			value.transactions.pop();
 
 			// We just rolled backed the last transaction and no value is in the
 			// committed set. We need to remove the key as an `OverlayValue` with no
 			// contents at all violates its invariant of always having at least one value.
-			if self.dirty_keys.is_empty() && value.value.is_empty() {
+			if self.dirty_keys.is_empty() && value.transactions.is_empty() {
 				self.changes.remove(&key);
 			}
 		});
@@ -275,17 +281,18 @@ impl OverlayedChangeSet {
 				// Last tx: Is there already a value in the committed set?
 				// Check against one rather than empty because the current tx is still
 				// in the list as it is popped later in this function.
-				value.value.len() == 1
+				value.transactions.len() == 1
 			};
 
 			// No need to merge if the previous tx has never written to this key.
-			// We just use the current tx as the previous one for this value.
-			if merge_tx {
-				*value.value_mut() = value.value.pop().expect("Key was marked dirty for this tx");
-				value.extrinsics_mut().extend(
-					value.extrinsics.pop().expect("Key was marked dirty for this tx")
-				);
+			// We just use the current tx as the previous one.
+			if ! merge_tx {
+				return;
 			}
+
+			let dropped_tx = value.transactions.pop().expect("Key was marked dirty for this tx");
+			*value.value_mut() = dropped_tx.value;
+			value.extrinsics_mut().extend(dropped_tx.extrinsics);
 		});
 	}
 }
