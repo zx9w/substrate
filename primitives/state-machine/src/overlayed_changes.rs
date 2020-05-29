@@ -240,34 +240,11 @@ impl OverlayedChangeSet {
 		value
 	}
 
-	fn close_transaction(&mut self, commit: bool) {
-		for key in self.dirty_keys.pop().expect("Transactions starts and closes are balanced.") {
-			let value = self.changes.get(&key).expect("key was marked as dirty");
-			let scalar = value.value.pop().expect("key was marked dirty for this tx");
-			let extrinsics = value.extrinsics.pop().expect("key was marked dirty for this tx");
-
-			if commit {
-				// When not closing the last tx we need to consider that they may have
-				// been no write during the previous tx.
-				if let Some(dirty_keys) = self.dirty_keys.last_mut() {
-					if dirty_keys.insert(key) {
-						value.value.push(Default::default());
-						value.extrinsics.push(Default::default());
-					}
-				} else if value.value.is_empty() {
-					// Closing the last commit -> create the commited entry if it not exists
-					value.value.push(Default::default());
-					value.extrinsics.push(Default::default());
-				}
-				*value.value_mut() = scalar;
-				value.extrinsics_mut().extend(extrinsics);
-			} else {
-				if self.dirty_keys.is_empty() && value.value.is_empty() {
-					// We just roll backed the last transaction and no value is in the
-					// committed set: Remove the key.
-					self.changes.remove(&key);
-				}
-			}
+	fn pop_dirty_keys<F>(&mut self, f: F)
+		where F: Fn(Vec<u8>, &OverlayedValue)
+	{
+		for key in self.dirty_keys.pop().expect("Transactions must be balanced.") {
+			f(key, self.changes.get(&key).expect("Key was marked as dirty."));
 		}
 	}
 
@@ -276,11 +253,40 @@ impl OverlayedChangeSet {
 	}
 
 	fn rollback_transaction(&mut self) {
-		self.close_transaction(false);
+		self.pop_dirty_keys(|key, value| {
+			value.value.pop();
+			value.extrinsics.pop();
+
+			// We just rolled backed the last transaction and no value is in the
+			// committed set. We need to remove the key as an `OverlayValue` with no
+			// contents at all violates its invariant of always having at least one value.
+			if self.dirty_keys.is_empty() && value.value.is_empty() {
+				self.changes.remove(&key);
+			}
+		});
 	}
 
 	fn commit_transaction(&mut self) {
-		self.close_transaction(true);
+		self.pop_dirty_keys(|key, value| {
+			let merge_tx = ! if let Some(dirty_keys) = self.dirty_keys.last_mut() {
+				// Not the last tx: Did the previous tx write to this key?
+				dirty_keys.insert(key)
+			} else {
+				// Last tx: Is there already a value in the committed set?
+				// Check against one rather than empty because the current tx is still
+				// in the list as it is popped later in this function.
+				value.value.len() == 1
+			};
+
+			// No need to merge if the previous tx has never written to this key.
+			// We just use the current tx as the previous one for this value.
+			if merge_tx {
+				*value.value_mut() = value.value.pop().expect("Key was marked dirty for this tx");
+				value.extrinsics_mut().extend(
+					value.extrinsics.pop().expect("Key was marked dirty for this tx")
+				);
+			}
+		});
 	}
 }
 
