@@ -661,25 +661,7 @@ impl OverlayedChanges {
 	/// If no value is next then `None` is returned.
 	pub fn next_storage_key_change(&self, key: &[u8]) -> Option<(&[u8], &OverlayedValue)> {
 		let range = (ops::Bound::Excluded(key), ops::Bound::Unbounded);
-
-		let next_prospective_key = self.prospective.top
-			.range::<[u8], _>(range)
-			.next()
-			.map(|(k, v)| (&k[..], v));
-
-		let next_committed_key = self.committed.top
-			.range::<[u8], _>(range)
-			.next()
-			.map(|(k, v)| (&k[..], v));
-
-		match (next_committed_key, next_prospective_key) {
-			// Committed is strictly less than prospective
-			(Some(committed_key), Some(prospective_key)) if committed_key.0 < prospective_key.0 =>
-				Some(committed_key),
-			(committed_key, None) => committed_key,
-			// Prospective key is less or equal to committed or committed doesn't exist
-			(_, prospective_key) => prospective_key,
-		}
+		self.top.changes.range::<[u8], _>(range).next().map(|(k, v)| (&k[..], v))
 	}
 
 	/// Returns the next (in lexicographic order) child storage key in the overlayed alongside its
@@ -691,20 +673,11 @@ impl OverlayedChanges {
 	) -> Option<(&[u8], &OverlayedValue)> {
 		let range = (ops::Bound::Excluded(key), ops::Bound::Unbounded);
 
-		let next_prospective_key = self.prospective.children_default.get(storage_key)
-			.and_then(|(map, _)| map.range::<[u8], _>(range).next().map(|(k, v)| (&k[..], v)));
-
-		let next_committed_key = self.committed.children_default.get(storage_key)
-			.and_then(|(map, _)| map.range::<[u8], _>(range).next().map(|(k, v)| (&k[..], v)));
-
-		match (next_committed_key, next_prospective_key) {
-			// Committed is strictly less than prospective
-			(Some(committed_key), Some(prospective_key)) if committed_key.0 < prospective_key.0 =>
-				Some(committed_key),
-			(committed_key, None) => committed_key,
-			// Prospective key is less or equal to committed or committed doesn't exist
-			(_, prospective_key) => prospective_key,
-		}
+		self.children
+			.get(storage_key)
+			.and_then(|(overlay, _)|
+				overlay.changes.range::<[u8], _>(range).next().map(|(k, v)| (&k[..], v))
+			)
 	}
 }
 
