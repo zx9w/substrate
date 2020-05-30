@@ -609,35 +609,13 @@ impl OverlayedChanges {
 	) -> H::Out
 		where H::Out: Ord + Encode,
 	{
-		let child_storage_keys = self.prospective.children_default.keys()
-				.chain(self.committed.children_default.keys());
-		let child_delta_iter = child_storage_keys.map(|storage_key|
-			(
-				self.default_child_info(storage_key)
-					.expect("child info initialized in either committed or prospective"),
-				self.committed.children_default.get(storage_key)
-					.into_iter()
-					.flat_map(|(map, _)|
-						map.iter().map(|(k, v)| (&k[..], v.value().map(|v| &v[..])))
-					)
-					.chain(
-						self.prospective.children_default.get(storage_key)
-							.into_iter()
-							.flat_map(|(map, _)|
-								map.iter().map(|(k, v)| (&k[..], v.value().map(|v| &v[..])))
-							)
-					),
-			)
-		);
+		let delta = self.changes(None).map(|(k, v)| (&k[..], v.value().map(|v| &v[..])));
+		let child_delta = self.child_infos()
+			.map(|info| (info, self.changes(Some(info)).map(
+				|(k, v)| (&k[..], v.value().map(|v| &v[..]))
+			)));
 
-		// compute and memoize
-		let delta = self.committed
-			.top
-			.iter()
-			.map(|(k, v)| (&k[..], v.value().map(|v| &v[..])))
-			.chain(self.prospective.top.iter().map(|(k, v)| (&k[..], v.value().map(|v| &v[..]))));
-
-		let (root, transaction) = backend.full_storage_root(delta, child_delta_iter);
+		let (root, transaction) = backend.full_storage_root(delta, child_delta);
 
 		cache.transaction = Some(transaction);
 		cache.transaction_storage_root = Some(root);
@@ -675,15 +653,8 @@ impl OverlayedChanges {
 	}
 
 	/// Get child info for a storage key.
-	/// Take the latest value so prospective first.
 	pub fn default_child_info(&self, storage_key: &[u8]) -> Option<&ChildInfo> {
-		if let Some((_, ci)) = self.prospective.children_default.get(storage_key) {
-			return Some(&ci);
-		}
-		if let Some((_, ci)) = self.committed.children_default.get(storage_key) {
-			return Some(&ci);
-		}
-		None
+		self.children.get(storage_key).map(|x| &x.1)
 	}
 
 	/// Returns the next (in lexicographic order) storage key in the overlayed alongside its value.
