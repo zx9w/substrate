@@ -578,10 +578,9 @@ impl OverlayedChanges {
 	/// Inserts storage entry responsible for current extrinsic index.
 	#[cfg(test)]
 	pub(crate) fn set_extrinsic_index(&mut self, extrinsic_index: u32) {
-		self.prospective.top.insert(EXTRINSIC_INDEX.to_vec(), OverlayedValue {
-			value: Some(extrinsic_index.encode()),
-			extrinsics: Default::default(),
-		});
+		let val = self.top.modify(EXTRINSIC_INDEX.to_vec(), None);
+		*val.value_mut() =  Some(extrinsic_index.encode());
+		*val.extrinsics_mut() = Default::default();
 	}
 
 	/// Returns current extrinsic index to use in changes trie construction.
