@@ -470,22 +470,31 @@ impl OverlayedChanges {
 		impl Iterator<Item=(StorageKey, Option<StorageValue>)>,
 		impl Iterator<Item=(StorageKey, (impl Iterator<Item=(StorageKey, Option<StorageValue>)>, ChildInfo))>,
 	) {
-		assert!(self.top.transaction_depth == 0);
+		assert!(self.top.dirty_keys.is_empty());
 		(
-			std::mem::take(&mut self.committed.top)
+			std::mem::take(&mut self.top)
+				.changes
 				.into_iter()
-				.map(|(k, v)| (k, v.value)),
-			std::mem::take(&mut self.committed.children_default)
+				.map(|(k, mut v)|
+					(k, v.transactions.pop().expect("Always at least one value").value)
+				),
+			std::mem::take(&mut self.children)
 				.into_iter()
-				.map(|(sk, (v, ci))| (sk, (v.into_iter().map(|(k, v)| (k, v.value)), ci))),
+				.map(|(key, (val, info))| {
+					assert!(val.dirty_keys.is_empty());
+					(
+						key,
+						(val.changes.into_iter().map(|(k, mut v)|
+							(k, v.transactions.pop().expect("Always at least one value.").value)), info
+						)
+					)
+				}),
 		)
 	}
 
 	/// Get an iterator over all pending and committed child tries in the overlay.
-	pub fn child_infos(&self) -> impl IntoIterator<Item=&ChildInfo> {
-		self.committed.children_default.iter()
-			.chain(self.prospective.children_default.iter())
-			.map(|(_, v)| &v.1).collect::<BTreeSet<_>>()
+	pub fn child_infos(&self) -> impl Iterator<Item=&ChildInfo> {
+		self.children.iter().map(|(_, v)| &v.1)
 	}
 
 	/// Get an iterator over all pending and committed changes.
@@ -496,17 +505,16 @@ impl OverlayedChanges {
 	pub fn changes(&self, child_info: Option<&ChildInfo>)
 		-> impl Iterator<Item=(&StorageKey, &OverlayedValue)>
 	{
-		let (committed, prospective) = if let Some(child_info) = child_info {
+		let overlay = if let Some(child_info) = child_info {
 			match child_info.child_type() {
-				ChildType::ParentKeyId => (
-					self.committed.children_default.get(child_info.storage_key()).map(|c| &c.0),
-					self.prospective.children_default.get(child_info.storage_key()).map(|c| &c.0),
-				),
+				ChildType::ParentKeyId =>
+					self.children.get(child_info.storage_key()).map(|c| &c.0),
 			}
 		} else {
-			(Some(&self.committed.top), Some(&self.prospective.top))
+			Some(&self.top)
 		};
-		committed.into_iter().flatten().chain(prospective.into_iter().flatten())
+
+		overlay.into_iter().flat_map(|overlay| &overlay.changes)
 	}
 
 	/// Convert this instance with all changes into a [`StorageChanges`] instance.
