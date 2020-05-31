@@ -206,14 +206,14 @@ impl OverlayedValue {
 	}
 
 	fn value_mut(&mut self) -> &mut Option<StorageValue> {
-		&mut self.transactions.last()
+		&mut self.transactions.last_mut()
 			.expect("A StorageValue is always initialized with one value.\
 			The last element is never removed as those are committed changes.")
 			.value
 	}
 
 	fn extrinsics_mut(&mut self) -> &mut BTreeSet<u32> {
-		&mut self.transactions.last().expect("").extrinsics
+		&mut self.transactions.last_mut().expect("").extrinsics
 	}
 }
 
@@ -247,20 +247,13 @@ impl OverlayedChangeSet {
 		value
 	}
 
-	fn pop_dirty_keys<F>(&mut self, f: F)
-		where F: Fn(Vec<u8>, &OverlayedValue)
-	{
-		for key in self.dirty_keys.pop().expect("Transactions must be balanced.") {
-			f(key, self.changes.get(&key).expect("Key was marked as dirty."));
-		}
-	}
-
 	fn start_transaction(&mut self) {
 		self.dirty_keys.push(Default::default());
 	}
 
 	fn rollback_transaction(&mut self) {
-		self.pop_dirty_keys(|key, value| {
+		for key in self.dirty_keys.pop().expect("Transactions must be balanced.") {
+			let value = self.changes.get_mut(&key).expect("Key was marked as dirty.");
 			value.transactions.pop();
 
 			// We just rolled backed the last transaction and no value is in the
@@ -269,11 +262,12 @@ impl OverlayedChangeSet {
 			if self.dirty_keys.is_empty() && value.transactions.is_empty() {
 				self.changes.remove(&key);
 			}
-		});
+		}
 	}
 
 	fn commit_transaction(&mut self) {
-		self.pop_dirty_keys(|key, value| {
+		for key in self.dirty_keys.pop().expect("Transactions must be balanced.") {
+			let value = self.changes.get_mut(&key).expect("Key was marked as dirty.");
 			let merge_tx = ! if let Some(dirty_keys) = self.dirty_keys.last_mut() {
 				// Not the last tx: Did the previous tx write to this key?
 				dirty_keys.insert(key)
@@ -290,10 +284,11 @@ impl OverlayedChangeSet {
 				return;
 			}
 
+
 			let dropped_tx = value.transactions.pop().expect("Key was marked dirty for this tx");
 			*value.value_mut() = dropped_tx.value;
 			value.extrinsics_mut().extend(dropped_tx.extrinsics);
-		});
+		}
 	}
 }
 
