@@ -347,11 +347,11 @@ impl<'a, B, H, N, Exec> StateMachine<'a, B, H, N, Exec> where
 				CallResult<R, Exec::Error>,
 			) -> CallResult<R, Exec::Error>
 	{
-		let pending_changes = self.overlay.clone_pending();
+		self.overlay.start_transaction();
 		let (result, was_native) = self.execute_aux(true, native_call.take());
 
 		if was_native {
-			self.overlay.replace_pending(pending_changes);
+			self.overlay.rollback_transaction();
 			let (wasm_result, _) = self.execute_aux(
 				false,
 				native_call,
@@ -366,6 +366,7 @@ impl<'a, B, H, N, Exec> StateMachine<'a, B, H, N, Exec> where
 				on_consensus_failure(wasm_result, result)
 			}
 		} else {
+			self.overlay.commit_transaction();
 			result
 		}
 	}
@@ -378,16 +379,17 @@ impl<'a, B, H, N, Exec> StateMachine<'a, B, H, N, Exec> where
 			R: Decode + Encode + PartialEq,
 			NC: FnOnce() -> result::Result<R, String> + UnwindSafe,
 	{
-		let pending_changes = self.overlay.clone_pending();
+		self.overlay.start_transaction();
 		let (result, was_native) = self.execute_aux(
 			true,
 			native_call.take(),
 		);
 
 		if !was_native || result.is_ok() {
+			self.overlay.commit_transaction();
 			result
 		} else {
-			self.overlay.replace_pending(pending_changes);
+			self.overlay.rollback_transaction();
 			let (wasm_result, _) = self.execute_aux(
 				false,
 				native_call,

@@ -26,7 +26,7 @@ use crate::{
 	stats::StateMachineStats,
 };
 
-use std::{mem, ops, collections::{HashMap, BTreeMap, BTreeSet, HashSet}};
+use std::{ops, collections::{HashMap, BTreeMap, BTreeSet, HashSet}};
 use codec::{Decode, Encode};
 use sp_core::storage::{well_known_keys::EXTRINSIC_INDEX, ChildInfo, ChildType};
 use sp_core::offchain::storage::OffchainOverlayedChanges;
@@ -228,7 +228,7 @@ impl OverlayedChangeSet {
 
 	#[must_use = "A change was registered, so this value MUST be modified."]
 	fn modify(&mut self, key: &[u8], at_extrinsic: Option<u32>) -> &mut OverlayedValue {
-		let first_write_in_tx = if let Some(dirty_keys) = self.dirty_keys.last() {
+		let first_write_in_tx = if let Some(dirty_keys) = self.dirty_keys.last_mut() {
 			dirty_keys.insert(key.to_vec())
 		} else {
 			false
