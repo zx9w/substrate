@@ -226,43 +226,13 @@ impl OverlayedChangeSet {
 		self.changes.get(key)
 	}
 
-	#[must_use = "A change was registered, so this value MUST be modified."]
-	fn modify(
+	fn set(
 		&mut self,
 		key: &[u8],
-		at_extrinsic: Option<u32>,
-		init: impl FnOnce() -> StorageValue
-	) -> &mut OverlayedValue {
-		let first_write_in_tx = if let Some(dirty_keys) = self.dirty_keys.last_mut() {
-			dirty_keys.insert(key.to_vec())
-		} else {
-			false
-		};
-
-		let value = self.changes.entry(key.to_vec()).or_insert_with(Default::default);
-
-		if first_write_in_tx || value.transactions.is_empty() {
-			if let Some(val) = value.transactions.last().map(|val| val.value.clone()) {
-				value.transactions.push(InnerValue {
-					value: val,
-					.. Default::default()
-				})
-			} else {
-				value.transactions.push(InnerValue {
-					value: Some(init()),
-					.. Default::default()
-				});
-			}
-		}
-
-		if let Some(extrinsic) = at_extrinsic {
-			value.tx_extrinsics_mut().insert(extrinsic);
-		}
-
-		value
-	}
-
-	fn set(&mut self, key: &[u8], val: Option<StorageValue>, at_extrinsic: Option<u32>) {
+		val: Option<StorageValue>,
+		at_extrinsic: Option<u32>
+	) -> &mut OverlayedValue
+	{
 		let first_write_in_tx = if let Some(dirty_keys) = self.dirty_keys.last_mut() {
 			dirty_keys.insert(key.to_vec())
 		} else {
@@ -283,6 +253,8 @@ impl OverlayedChangeSet {
 		if let Some(extrinsic) = at_extrinsic {
 			value.tx_extrinsics_mut().insert(extrinsic);
 		}
+
+		value
 	}
 
 	fn start_transaction(&mut self) {
@@ -363,10 +335,15 @@ impl OverlayedChanges {
 		key: &[u8],
 		init: impl Fn() -> StorageValue,
 	) -> &mut StorageValue {
-		let entry = self.top.modify(key, self.extrinsic_index(), init);
-		let value = entry.value_mut();
+		let previous = if let Some(prev) = self.top.get(key) {
+			prev.value().cloned()
+		} else {
+			Some(init())
+		};
 
-		//if was deleted initialise back with empty vec
+		let overlayed = self.top.set(key, previous, self.extrinsic_index());
+		let value = overlayed.value_mut();
+
 		if value.is_none() {
 			*value = Some(Default::default());
 		}
@@ -437,7 +414,7 @@ impl OverlayedChanges {
 		debug_assert!(updatable);
 
 		for (key, _) in changeset.changes {
-			changeset.set(&key, None, extrinsic_index)
+			changeset.set(&key, None, extrinsic_index);
 		}
 	}
 
@@ -449,7 +426,7 @@ impl OverlayedChanges {
 	/// [`discard_prospective`]: #method.discard_prospective
 	pub(crate) fn clear_prefix(&mut self, prefix: &[u8]) {
 		for (key, _) in self.top.changes.iter().filter(|(key, _)| key.starts_with(prefix)) {
-			self.top.set(key, None, self.extrinsic_index())
+			self.top.set(key, None, self.extrinsic_index());
 		}
 	}
 
