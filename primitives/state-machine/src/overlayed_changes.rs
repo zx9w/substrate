@@ -212,7 +212,7 @@ impl OverlayedValue {
 			.value
 	}
 
-	fn extrinsics_mut(&mut self) -> &mut BTreeSet<u32> {
+	fn tx_extrinsics_mut(&mut self) -> &mut BTreeSet<u32> {
 		&mut self.transactions.last_mut().expect("").extrinsics
 	}
 }
@@ -227,7 +227,12 @@ impl OverlayedChangeSet {
 	}
 
 	#[must_use = "A change was registered, so this value MUST be modified."]
-	fn modify(&mut self, key: &[u8], at_extrinsic: Option<u32>) -> &mut OverlayedValue {
+	fn modify(
+		&mut self,
+		key: &[u8],
+		at_extrinsic: Option<u32>,
+		init: impl FnOnce() -> StorageValue
+	) -> &mut OverlayedValue {
 		let first_write_in_tx = if let Some(dirty_keys) = self.dirty_keys.last_mut() {
 			dirty_keys.insert(key.to_vec())
 		} else {
@@ -237,14 +242,47 @@ impl OverlayedChangeSet {
 		let value = self.changes.entry(key.to_vec()).or_insert_with(Default::default);
 
 		if first_write_in_tx || value.transactions.is_empty() {
-			value.transactions.push(Default::default())
+			if let Some(val) = value.transactions.last().map(|val| val.value.clone()) {
+				value.transactions.push(InnerValue {
+					value: val,
+					.. Default::default()
+				})
+			} else {
+				value.transactions.push(InnerValue {
+					value: Some(init()),
+					.. Default::default()
+				});
+			}
 		}
 
 		if let Some(extrinsic) = at_extrinsic {
-			value.extrinsics_mut().insert(extrinsic);
+			value.tx_extrinsics_mut().insert(extrinsic);
 		}
 
 		value
+	}
+
+	fn set(&mut self, key: &[u8], val: Option<StorageValue>, at_extrinsic: Option<u32>) {
+		let first_write_in_tx = if let Some(dirty_keys) = self.dirty_keys.last_mut() {
+			dirty_keys.insert(key.to_vec())
+		} else {
+			false
+		};
+
+		let value = self.changes.entry(key.to_vec()).or_insert_with(Default::default);
+
+		if first_write_in_tx || value.transactions.is_empty() {
+			value.transactions.push(InnerValue {
+				value: val,
+				.. Default::default()
+			});
+		} else {
+			*value.value_mut() = val;
+		}
+
+		if let Some(extrinsic) = at_extrinsic {
+			value.tx_extrinsics_mut().insert(extrinsic);
+		}
 	}
 
 	fn start_transaction(&mut self) {
@@ -287,7 +325,7 @@ impl OverlayedChangeSet {
 
 			let dropped_tx = value.transactions.pop().expect("Key was marked dirty for this tx");
 			*value.value_mut() = dropped_tx.value;
-			value.extrinsics_mut().extend(dropped_tx.extrinsics);
+			value.tx_extrinsics_mut().extend(dropped_tx.extrinsics);
 		}
 	}
 }
@@ -325,7 +363,7 @@ impl OverlayedChanges {
 		key: &[u8],
 		init: impl Fn() -> StorageValue,
 	) -> &mut StorageValue {
-		let entry = self.top.modify(key, self.extrinsic_index());
+		let entry = self.top.modify(key, self.extrinsic_index(), init);
 		let value = entry.value_mut();
 
 		//if was deleted initialise back with empty vec
@@ -357,8 +395,7 @@ impl OverlayedChanges {
 	pub(crate) fn set_storage(&mut self, key: StorageKey, val: Option<StorageValue>) {
 		let size_write = val.as_ref().map(|x| x.len() as u64).unwrap_or(0);
 		self.stats.tally_write_overlay(size_write);
-		let entry = self.top.modify(&key, self.extrinsic_index());
-		*entry.value_mut() = val;
+		self.top.set(&key, val, self.extrinsic_index());
 	}
 
 	/// Inserts the given key-value pair into the prospective child change set.
@@ -370,6 +407,7 @@ impl OverlayedChanges {
 		key: StorageKey,
 		val: Option<StorageValue>,
 	) {
+		let extrinsic_index = self.extrinsic_index();
 		let size_write = val.as_ref().map(|x| x.len() as u64).unwrap_or(0);
 		self.stats.tally_write_overlay(size_write);
 		let storage_key = child_info.storage_key().to_vec();
@@ -378,8 +416,7 @@ impl OverlayedChanges {
 		let updatable = map_entry.1.try_update(child_info);
 		debug_assert!(updatable);
 
-		let entry = map_entry.0.modify(&key, self.extrinsic_index());
-		*entry.value_mut() = val;
+		map_entry.0.set(&key, val, extrinsic_index);
 	}
 
 	/// Clear child storage of given storage key.
@@ -392,16 +429,15 @@ impl OverlayedChanges {
 		&mut self,
 		child_info: &ChildInfo,
 	) {
+		let extrinsic_index = self.extrinsic_index();
 		let storage_key = child_info.storage_key();
 		let (changeset, info) = self.children.entry(storage_key.to_vec())
 			.or_insert_with(|| (Default::default(), child_info.to_owned()));
 		let updatable = info.try_update(child_info);
 		debug_assert!(updatable);
 
-		for (key, _) in &changeset.changes {
-			*changeset
-				.modify(key, self.extrinsic_index())
-				.value_mut() = None;
+		for (key, _) in changeset.changes {
+			changeset.set(&key, None, extrinsic_index)
 		}
 	}
 
@@ -413,9 +449,7 @@ impl OverlayedChanges {
 	/// [`discard_prospective`]: #method.discard_prospective
 	pub(crate) fn clear_prefix(&mut self, prefix: &[u8]) {
 		for (key, _) in self.top.changes.iter().filter(|(key, _)| key.starts_with(prefix)) {
-			*self.top
-				.modify(key, self.extrinsic_index())
-				.value_mut() = None;
+			self.top.set(key, None, self.extrinsic_index())
 		}
 	}
 
@@ -432,7 +466,7 @@ impl OverlayedChanges {
 		debug_assert!(updatable);
 
 		for (key, _) in changeset.changes.iter().filter(|(key, _)| key.starts_with(prefix)) {
-			*changeset.modify(key, self.extrinsic_index()).value_mut() = None;
+			changeset.set(key, None, extrinsic_index);
 		}
 	}
 
@@ -575,7 +609,7 @@ impl OverlayedChanges {
 	pub(crate) fn set_extrinsic_index(&mut self, extrinsic_index: u32) {
 		let val = self.top.modify(EXTRINSIC_INDEX.to_vec(), None);
 		*val.value_mut() =  Some(extrinsic_index.encode());
-		*val.extrinsics_mut() = Default::default();
+		*val.tx_extrinsics_mut() = Default::default();
 	}
 
 	/// Returns current extrinsic index to use in changes trie construction.
