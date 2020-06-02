@@ -73,7 +73,7 @@ impl OverlayedValue {
 			.value
 	}
 
-	pub fn tx_extrinsics_mut(&mut self) -> &mut BTreeSet<u32> {
+	fn tx_extrinsics_mut(&mut self) -> &mut BTreeSet<u32> {
 		&mut self.transactions.last_mut().expect("").extrinsics
 	}
 
