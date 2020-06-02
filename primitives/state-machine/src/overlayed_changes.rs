@@ -292,10 +292,9 @@ impl OverlayedChangeSet {
 			let value = self.changes.get_mut(&key).expect("Key was marked as dirty.");
 			value.transactions.pop();
 
-			// We just rolled backed the last transaction and no value is in the
-			// committed set. We need to remove the key as an `OverlayValue` with no
-			// contents at all violates its invariant of always having at least one value.
-			if self.dirty_keys.is_empty() && value.transactions.is_empty() {
+			// We need to remove the key as an `OverlayValue` with no contents
+			// violates its invariant of always having at least one value.
+			if value.transactions.is_empty() {
 				self.changes.remove(&key);
 			}
 		}
