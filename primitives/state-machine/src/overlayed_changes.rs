@@ -31,7 +31,7 @@ use self::changeset::OverlayedChangeSet;
 
 use std::collections::HashMap;
 use codec::{Decode, Encode};
-use sp_core::storage::{well_known_keys::EXTRINSIC_INDEX, ChildInfo, ChildType};
+use sp_core::storage::{well_known_keys::EXTRINSIC_INDEX, ChildInfo};
 use sp_core::offchain::storage::OffchainOverlayedChanges;
 use hash_db::Hasher;
 
@@ -367,8 +367,9 @@ impl OverlayedChanges {
 	}
 
 	/// Get an iterator over all pending and committed child tries in the overlay.
-	pub fn child_infos(&self) -> impl Iterator<Item=&ChildInfo> {
-		self.children.iter().map(|(_, v)| &v.1)
+	pub fn children(&self)
+		-> impl Iterator<Item=(impl Iterator<Item=(&StorageKey, &OverlayedValue)>, &ChildInfo)> {
+		self.children.iter().map(|(_, v)| (v.0.changes(), &v.1))
 	}
 
 	/// Get an iterator over all pending and committed changes.
@@ -376,19 +377,13 @@ impl OverlayedChanges {
 	/// Supplying `None` for `child_info` will only return changes that are in the top
 	/// trie. Specifying some `child_info` will return only the changes in that
 	/// child trie.
-	pub fn changes(&self, child_info: Option<&ChildInfo>)
-		-> impl Iterator<Item=(&StorageKey, &OverlayedValue)>
-	{
-		let overlay = if let Some(child_info) = child_info {
-			match child_info.child_type() {
-				ChildType::ParentKeyId =>
-					self.children.get(child_info.storage_key()).map(|c| &c.0),
-			}
-		} else {
-			Some(&self.top)
-		};
+	pub fn changes(&self) -> impl Iterator<Item=(&StorageKey, &OverlayedValue)> {
+		self.top.changes()
+	}
 
-		overlay.into_iter().flat_map(|overlay| overlay.changes())
+	/// Return all changes in this overlay for the child trie that is saved under the pass key.
+	pub fn child_changes(&self, key: &[u8]) -> Option<(impl Iterator<Item=(&StorageKey, &OverlayedValue)>, &ChildInfo)> {
+		self.children.get(key).map(|(overlay, info)| (overlay.changes(), info))
 	}
 
 	/// Convert this instance with all changes into a [`StorageChanges`] instance.
@@ -481,9 +476,9 @@ impl OverlayedChanges {
 	) -> H::Out
 		where H::Out: Ord + Encode,
 	{
-		let delta = self.changes(None).map(|(k, v)| (&k[..], v.value().map(|v| &v[..])));
-		let child_delta = self.child_infos()
-			.map(|info| (info, self.changes(Some(info)).map(
+		let delta = self.changes().map(|(k, v)| (&k[..], v.value().map(|v| &v[..])));
+		let child_delta = self.children()
+			.map(|(changes, info)| (info, changes.map(
 				|(k, v)| (&k[..], v.value().map(|v| &v[..]))
 			)));
 
@@ -522,11 +517,6 @@ impl OverlayedChanges {
 			cache.changes_trie_transaction_storage_root = Some(root);
 			root
 		})
-	}
-
-	/// Get child info for a storage key.
-	pub fn default_child_info(&self, storage_key: &[u8]) -> Option<&ChildInfo> {
-		self.children.get(storage_key).map(|x| &x.1)
 	}
 
 	/// Returns the next (in lexicographic order) storage key in the overlayed alongside its value.

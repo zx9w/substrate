@@ -999,7 +999,7 @@ mod tests {
 		overlay.commit_transaction();
 
 		assert_eq!(
-			overlay.changes(None).map(|(k, v)| (k.clone(), v.value().cloned()))
+			overlay.changes().map(|(k, v)| (k.clone(), v.value().cloned()))
 				.collect::<HashMap<_, _>>(),
 			map![
 				b"abc".to_vec() => None.into(),

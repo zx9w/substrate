@@ -147,7 +147,7 @@ where
 
 		self.backend.pairs().iter()
 			.map(|&(ref k, ref v)| (k.to_vec(), Some(v.to_vec())))
-			.chain(self.overlay.changes(None).map(|(k, v)| (k.clone(), v.value().cloned())))
+			.chain(self.overlay.changes().map(|(k, v)| (k.clone(), v.value().cloned())))
 			.collect::<HashMap<_, _>>()
 			.into_iter()
 			.filter_map(|(k, maybe_val)| maybe_val.map(|val| (k, val)))
@@ -477,15 +477,14 @@ where
 			);
 			root.encode()
 		} else {
+			let root = if let Some((changes, info)) = self.overlay.child_changes(storage_key) {
+				let delta = changes.map(|(k, v)| (k.as_ref(), v.value().map(AsRef::as_ref)));
+				Some(self.backend.child_storage_root(info, delta))
+			} else {
+				None
+			};
 
-			if let Some(child_info) = self.overlay.default_child_info(storage_key) {
-				let (root, is_empty, _) = {
-					let delta = self.overlay.changes(Some(child_info))
-						.map(|(k, v)| (k.as_ref(), v.value().map(AsRef::as_ref)));
-
-					self.backend.child_storage_root(child_info, delta)
-				};
-
+			if let Some((root, is_empty, _)) = root {
 				let root = root.encode();
 				// We store update in the overlay in order to be able to use 'self.storage_transaction'
 				// cache. This is brittle as it rely on Ext only querying the trie backend for
