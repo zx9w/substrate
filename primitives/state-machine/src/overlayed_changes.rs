@@ -464,6 +464,13 @@ impl OverlayedChanges {
 		changeset.clear(|key, _| key.starts_with(prefix), extrinsic_index);
 	}
 
+	/// Start a new nested transaction.
+	///
+	/// This allows to either commit or roll back all changes that where made while this
+	/// transaction was open. Any transaction must be closed by one of the aforementioned
+	/// functions before this overlay can be converted into storage changes.
+	///
+	/// Changes made without any open transaction are comitted immediatly.
 	pub fn start_transaction(&mut self) {
 		self.top.start_transaction();
 		for (_, (changeset, _)) in self.children.iter_mut() {
@@ -471,6 +478,12 @@ impl OverlayedChanges {
 		}
 	}
 
+	/// Rollback the last transaction started by `start_transaction`.
+	///
+	/// Any changes made during that transaction are discarded.
+	///
+	/// Panics:
+	/// Will panic if there is no open transaction.
 	pub fn rollback_transaction(&mut self) {
 		self.top.rollback_transaction();
 		for (_, (changeset, _)) in self.children.iter_mut() {
@@ -478,6 +491,12 @@ impl OverlayedChanges {
 		}
 	}
 
+	/// Commit the last transaction started by `start_transaction`.
+	///
+	/// Any changes made during that transaction are committed.
+	///
+	/// Panics:
+	/// Will panic if there is no open transaction.
 	pub fn commit_transaction(&mut self) {
 		self.top.commit_transaction();
 		for (_, (changeset, _)) in self.children.iter_mut() {
