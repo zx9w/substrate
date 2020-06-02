@@ -26,7 +26,7 @@ use crate::{
 	stats::StateMachineStats,
 };
 
-use std::{ops, collections::{HashMap, BTreeMap, BTreeSet, HashSet}};
+use std::{ops, collections::{HashMap, BTreeMap, BTreeSet, HashSet}, iter::repeat};
 use codec::{Decode, Encode};
 use sp_core::storage::{well_known_keys::EXTRINSIC_INDEX, ChildInfo, ChildType};
 use sp_core::offchain::storage::OffchainOverlayedChanges;
@@ -414,11 +414,20 @@ impl OverlayedChanges {
 		let size_write = val.as_ref().map(|x| x.len() as u64).unwrap_or(0);
 		self.stats.tally_write_overlay(size_write);
 		let storage_key = child_info.storage_key().to_vec();
-		let map_entry = self.children.entry(storage_key)
-			.or_insert_with(|| (Default::default(), child_info.to_owned()));
-		let updatable = map_entry.1.try_update(child_info);
+		let tx_depth = self.top.dirty_keys.len();
+		let (overlay, info) = self.children.entry(storage_key)
+			.or_insert_with(|| (
+				OverlayedChangeSet {
+					// This changeset might be created when there are already open transactions.
+					// We need to catch up here so it is at the same transaction depth.
+					dirty_keys: repeat(HashSet::new()).take(tx_depth).collect(),
+					.. Default::default()
+				},
+				child_info.to_owned()
+			));
+		let updatable = info.try_update(child_info);
 		debug_assert!(updatable);
-		map_entry.0.set(key, val, extrinsic_index);
+		overlay.set(key, val, extrinsic_index);
 	}
 
 	/// Clear child storage of given storage key.
