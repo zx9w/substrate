@@ -414,7 +414,7 @@ impl OverlayedChanges {
 		let size_write = val.as_ref().map(|x| x.len() as u64).unwrap_or(0);
 		self.stats.tally_write_overlay(size_write);
 		let storage_key = child_info.storage_key().to_vec();
-		let tx_depth = self.top.dirty_keys.len();
+		let tx_depth = self.transaction_depth();
 		let (overlay, info) = self.children.entry(storage_key)
 			.or_insert_with(|| (
 				OverlayedChangeSet {
@@ -471,6 +471,11 @@ impl OverlayedChanges {
 		let updatable = info.try_update(child_info);
 		debug_assert!(updatable);
 		changeset.clear(|key, _| key.starts_with(prefix), extrinsic_index);
+	}
+
+	/// Returns the current nesting depth of the transaction stack.
+	pub fn transaction_depth(&self) -> usize {
+		self.top.dirty_keys.len()
 	}
 
 	/// Start a new nested transaction.

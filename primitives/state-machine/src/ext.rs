@@ -548,7 +548,9 @@ where
 	}
 
 	fn wipe(&mut self) {
-		self.overlay.rollback_transaction();
+		for _ in 0..self.overlay.transaction_depth() {
+			self.overlay.rollback_transaction();
+		}
 		self.overlay.drain_storage_changes(
 			&self.backend,
 			None,
@@ -560,7 +562,9 @@ where
 	}
 
 	fn commit(&mut self) {
-		self.overlay.commit_transaction();
+		for _ in 0..self.overlay.transaction_depth() {
+			self.overlay.commit_transaction();
+		}
 		let changes = self.overlay.drain_storage_changes(
 			&self.backend,
 			None,
