@@ -718,9 +718,7 @@ impl From<Option<StorageValue>> for OverlayedValue {
 mod tests {
 	use std::borrow::Borrow;
 	use hex_literal::hex;
-	use sp_core::{
-		Blake2Hasher, traits::Externalities, storage::well_known_keys::EXTRINSIC_INDEX,
-	};
+	use sp_core::{Blake2Hasher, traits::Externalities};
 	use crate::InMemoryBackend;
 	use crate::ext::Ext;
 	use super::*;
@@ -850,38 +848,39 @@ mod tests {
 	#[test]
 	fn next_storage_key_change_works() {
 		let mut overlay = OverlayedChanges::default();
+		overlay.start_transaction();
 		overlay.set_storage(vec![20], Some(vec![20]));
 		overlay.set_storage(vec![30], Some(vec![30]));
 		overlay.set_storage(vec![40], Some(vec![40]));
-		overlay.commit_prospective();
+		overlay.commit_transaction();
 		overlay.set_storage(vec![10], Some(vec![10]));
 		overlay.set_storage(vec![30], None);
 
 		// next_prospective < next_committed
 		let next_to_5 = overlay.next_storage_key_change(&[5]).unwrap();
 		assert_eq!(next_to_5.0.to_vec(), vec![10]);
-		assert_eq!(next_to_5.1.value, Some(vec![10]));
+		assert_eq!(next_to_5.1.value(), Some(&vec![10]));
 
 		// next_committed < next_prospective
 		let next_to_10 = overlay.next_storage_key_change(&[10]).unwrap();
 		assert_eq!(next_to_10.0.to_vec(), vec![20]);
-		assert_eq!(next_to_10.1.value, Some(vec![20]));
+		assert_eq!(next_to_10.1.value(), Some(&vec![20]));
 
 		// next_committed == next_prospective
 		let next_to_20 = overlay.next_storage_key_change(&[20]).unwrap();
 		assert_eq!(next_to_20.0.to_vec(), vec![30]);
-		assert_eq!(next_to_20.1.value, None);
+		assert_eq!(next_to_20.1.value(), None);
 
 		// next_committed, no next_prospective
 		let next_to_30 = overlay.next_storage_key_change(&[30]).unwrap();
 		assert_eq!(next_to_30.0.to_vec(), vec![40]);
-		assert_eq!(next_to_30.1.value, Some(vec![40]));
+		assert_eq!(next_to_30.1.value(), Some(&vec![40]));
 
 		overlay.set_storage(vec![50], Some(vec![50]));
 		// next_prospective, no next_committed
 		let next_to_40 = overlay.next_storage_key_change(&[40]).unwrap();
 		assert_eq!(next_to_40.0.to_vec(), vec![50]);
-		assert_eq!(next_to_40.1.value, Some(vec![50]));
+		assert_eq!(next_to_40.1.value(), Some(&vec![50]));
 	}
 
 	#[test]
