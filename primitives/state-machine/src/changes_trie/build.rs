@@ -399,6 +399,8 @@ mod test {
 		let mut changes = OverlayedChanges::default();
 		changes.set_collect_extrinsics(true);
 
+		changes.start_transaction();
+
 		changes.set_extrinsic_index(1);
 		changes.set_storage(vec![101], Some(vec![203]));
 
@@ -406,7 +408,7 @@ mod test {
 		changes.set_storage(vec![100], Some(vec![202]));
 		changes.set_child_storage(&child_info_1, vec![100], Some(vec![202]));
 
-		changes.commit_prospective();
+		changes.commit_transaction();
 
 		changes.set_extrinsic_index(0);
 		changes.set_storage(vec![100], Some(vec![0]));

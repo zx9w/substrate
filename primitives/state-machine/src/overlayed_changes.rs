@@ -735,7 +735,6 @@ impl From<Option<StorageValue>> for OverlayedValue {
 
 #[cfg(test)]
 mod tests {
-	use std::borrow::Borrow;
 	use hex_literal::hex;
 	use sp_core::{Blake2Hasher, traits::Externalities};
 	use crate::InMemoryBackend;
@@ -743,12 +742,12 @@ mod tests {
 	use super::*;
 
 	fn assert_extrinsics(
-		overlay: impl Borrow<OverlayedChangeSet>,
+		overlay: &OverlayedChangeSet,
 		key: impl AsRef<[u8]>,
 		should: Vec<u32>
 	) {
 		assert_eq!(
-			overlay.borrow().get(key.as_ref()).unwrap().extrinsics().cloned().collect::<Vec<_>>(),
+			overlay.get(key.as_ref()).unwrap().extrinsics().cloned().collect::<Vec<_>>(),
 			should
 		)
 	}
@@ -841,9 +840,9 @@ mod tests {
 		overlay.set_extrinsic_index(2);
 		overlay.set_storage(vec![1], Some(vec![6]));
 
-		assert_extrinsics(overlay.top, vec![1], vec![0, 2]);
-		assert_extrinsics(overlay.top, vec![3], vec![1]);
-		assert_extrinsics(overlay.top, vec![100], vec![NO_EXTRINSIC_INDEX]);
+		assert_extrinsics(&overlay.top, vec![1], vec![0, 2]);
+		assert_extrinsics(&overlay.top, vec![3], vec![1]);
+		assert_extrinsics(&overlay.top, vec![100], vec![NO_EXTRINSIC_INDEX]);
 
 		overlay.start_transaction();
 
@@ -853,15 +852,15 @@ mod tests {
 		overlay.set_extrinsic_index(4);
 		overlay.set_storage(vec![1], Some(vec![8]));
 
-		assert_extrinsics(overlay.top, vec![1], vec![0, 2, 4]);
-		assert_extrinsics(overlay.top, vec![3], vec![1, 3]);
-		assert_extrinsics(overlay.top, vec![100], vec![NO_EXTRINSIC_INDEX]);
+		assert_extrinsics(&overlay.top, vec![1], vec![0, 2, 4]);
+		assert_extrinsics(&overlay.top, vec![3], vec![1, 3]);
+		assert_extrinsics(&overlay.top, vec![100], vec![NO_EXTRINSIC_INDEX]);
 
 		overlay.rollback_transaction();
 
-		assert_extrinsics(overlay.top, vec![1], vec![0, 2]);
-		assert_extrinsics(overlay.top, vec![3], vec![1]);
-		assert_extrinsics(overlay.top, vec![100], vec![NO_EXTRINSIC_INDEX]);
+		assert_extrinsics(&overlay.top, vec![1], vec![0, 2]);
+		assert_extrinsics(&overlay.top, vec![3], vec![1]);
+		assert_extrinsics(&overlay.top, vec![100], vec![NO_EXTRINSIC_INDEX]);
 	}
 
 	#[test]
