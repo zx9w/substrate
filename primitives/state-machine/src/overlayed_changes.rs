@@ -705,7 +705,12 @@ impl OverlayedChanges {
 #[cfg(test)]
 impl From<Option<StorageValue>> for OverlayedValue {
 	fn from(value: Option<StorageValue>) -> OverlayedValue {
-		OverlayedValue { value, ..Default::default() }
+		OverlayedValue {
+			transactions: vec![InnerValue {
+				value,
+				.. Default::default()
+			}]
+		}
 	}
 }
 
