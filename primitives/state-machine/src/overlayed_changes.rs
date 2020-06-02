@@ -769,18 +769,18 @@ mod tests {
 			(b"doug".to_vec(), b"notadog".to_vec()),
 		].into_iter().collect();
 		let backend = InMemoryBackend::<Blake2Hasher>::from(initial);
-		let mut overlay = OverlayedChanges {
-			committed: vec![
-				(b"dog".to_vec(), Some(b"puppy".to_vec()).into()),
-				(b"dogglesworth".to_vec(), Some(b"catYYY".to_vec()).into()),
-				(b"doug".to_vec(), Some(vec![]).into()),
-			].into_iter().collect(),
-			prospective: vec![
-				(b"dogglesworth".to_vec(), Some(b"cat".to_vec()).into()),
-				(b"doug".to_vec(), None.into()),
-			].into_iter().collect(),
-			..Default::default()
-		};
+		let mut overlay = OverlayedChanges::default();
+		overlay.set_collect_extrinsics(false);
+
+		overlay.start_transaction();
+		overlay.set_storage(b"dog".to_vec(), Some(b"puppy".to_vec()));
+		overlay.set_storage(b"dogglesworth".to_vec(), Some(b"catYYY".to_vec()));
+		overlay.set_storage(b"doug".to_vec(), Some(vec![]));
+		overlay.commit_transaction();
+
+		overlay.start_transaction();
+		overlay.set_storage(b"dogglesworth".to_vec(), Some(b"cat".to_vec()));
+		overlay.set_storage(b"doug".to_vec(), None);
 
 		let mut offchain_overlay = Default::default();
 		let mut cache = StorageTransactionCache::default();
