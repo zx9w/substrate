@@ -152,11 +152,7 @@ impl OverlayedChangeSet {
 		at_extrinsic: Option<u32>
 	)
 	{
-		for (key, val) in self.changes.iter_mut() {
-			if ! predicate(key, val) {
-				continue;
-			}
-
+		for (key, val) in self.changes.iter_mut().filter(|(k, v)| predicate(k, v)) {
 			let first_write_in_tx = insert_dirty(&mut self.dirty_keys, key.to_owned());
 			val.set(None, first_write_in_tx, at_extrinsic);
 		}
