@@ -256,13 +256,13 @@ impl OverlayedChangeSet {
 
 	fn set(
 		&mut self,
-		key: &[u8],
+		key: StorageKey,
 		value: Option<StorageValue>,
 		at_extrinsic: Option<u32>
 	) -> &mut OverlayedValue
 	{
-		let first_write_in_tx = Self::insert_dirty(&mut self.dirty_keys, key.to_owned());
-		let overlayed = self.changes.entry(key.to_vec()).or_insert_with(Default::default);
+		let first_write_in_tx = Self::insert_dirty(&mut self.dirty_keys, key.clone());
+		let overlayed = self.changes.entry(key).or_insert_with(Default::default);
 		overlayed.set(value, first_write_in_tx, at_extrinsic);
 		overlayed
 	}
@@ -367,7 +367,7 @@ impl OverlayedChanges {
 			Some(init())
 		};
 
-		let overlayed = self.top.set(key, previous, self.extrinsic_index());
+		let overlayed = self.top.set(key.to_owned(), previous, self.extrinsic_index());
 		let value = overlayed.value_mut();
 
 		if value.is_none() {
@@ -398,7 +398,7 @@ impl OverlayedChanges {
 	pub(crate) fn set_storage(&mut self, key: StorageKey, val: Option<StorageValue>) {
 		let size_write = val.as_ref().map(|x| x.len() as u64).unwrap_or(0);
 		self.stats.tally_write_overlay(size_write);
-		self.top.set(&key, val, self.extrinsic_index());
+		self.top.set(key, val, self.extrinsic_index());
 	}
 
 	/// Inserts the given key-value pair into the prospective child change set.
@@ -418,8 +418,7 @@ impl OverlayedChanges {
 			.or_insert_with(|| (Default::default(), child_info.to_owned()));
 		let updatable = map_entry.1.try_update(child_info);
 		debug_assert!(updatable);
-
-		map_entry.0.set(&key, val, extrinsic_index);
+		map_entry.0.set(key, val, extrinsic_index);
 	}
 
 	/// Clear child storage of given storage key.
