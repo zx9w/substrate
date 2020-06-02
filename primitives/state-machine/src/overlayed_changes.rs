@@ -601,7 +601,7 @@ impl OverlayedChanges {
 	/// Inserts storage entry responsible for current extrinsic index.
 	#[cfg(test)]
 	pub(crate) fn set_extrinsic_index(&mut self, extrinsic_index: u32) {
-		self.top.set(EXTRINSIC_INDEX.to_vec(), extrinsic_index.encode(), None);
+		self.top.set(EXTRINSIC_INDEX.to_vec(), Some(extrinsic_index.encode()), None);
 	}
 
 	/// Returns current extrinsic index to use in changes trie construction.
@@ -716,6 +716,7 @@ impl From<Option<StorageValue>> for OverlayedValue {
 
 #[cfg(test)]
 mod tests {
+	use std::borrow::Borrow;
 	use hex_literal::hex;
 	use sp_core::{
 		Blake2Hasher, traits::Externalities, storage::well_known_keys::EXTRINSIC_INDEX,
@@ -724,12 +725,15 @@ mod tests {
 	use crate::ext::Ext;
 	use super::*;
 
-	fn strip_extrinsic_index(map: &BTreeMap<StorageKey, OverlayedValue>)
-		-> BTreeMap<StorageKey, OverlayedValue>
-	{
-		let mut clone = map.clone();
-		clone.remove(&EXTRINSIC_INDEX.to_vec());
-		clone
+	fn assert_extrinsics(
+		overlay: impl Borrow<OverlayedChangeSet>,
+		key: impl AsRef<[u8]>,
+		should: Vec<u32>
+	) {
+		assert_eq!(
+			overlay.borrow().get(key.as_ref()).unwrap().extrinsics().cloned().collect::<Vec<_>>(),
+			should
+		)
 	}
 
 	#[test]
@@ -740,11 +744,16 @@ mod tests {
 
 		assert!(overlayed.storage(&key).is_none());
 
+		overlayed.start_transaction();
+
 		overlayed.set_storage(key.clone(), Some(vec![1, 2, 3]));
 		assert_eq!(overlayed.storage(&key).unwrap(), Some(&[1, 2, 3][..]));
 
-		overlayed.commit_prospective();
+		overlayed.commit_transaction();
+
 		assert_eq!(overlayed.storage(&key).unwrap(), Some(&[1, 2, 3][..]));
+
+		overlayed.start_transaction();
 
 		overlayed.set_storage(key.clone(), Some(vec![]));
 		assert_eq!(overlayed.storage(&key).unwrap(), Some(&[][..]));
@@ -752,11 +761,11 @@ mod tests {
 		overlayed.set_storage(key.clone(), None);
 		assert!(overlayed.storage(&key).unwrap().is_none());
 
-		overlayed.discard_prospective();
+		overlayed.rollback_transaction();
+
 		assert_eq!(overlayed.storage(&key).unwrap(), Some(&[1, 2, 3][..]));
 
 		overlayed.set_storage(key.clone(), None);
-		overlayed.commit_prospective();
 		assert!(overlayed.storage(&key).unwrap().is_none());
 	}
 
@@ -802,6 +811,8 @@ mod tests {
 		let mut overlay = OverlayedChanges::default();
 		overlay.set_collect_extrinsics(true);
 
+		overlay.start_transaction();
+
 		overlay.set_storage(vec![100], Some(vec![101]));
 
 		overlay.set_extrinsic_index(0);
@@ -813,17 +824,11 @@ mod tests {
 		overlay.set_extrinsic_index(2);
 		overlay.set_storage(vec![1], Some(vec![6]));
 
-		assert_eq!(strip_extrinsic_index(&overlay.prospective.top),
-			vec![
-				(vec![1], OverlayedValue { value: Some(vec![6]),
-				 extrinsics: vec![0, 2].into_iter().collect() }),
-				(vec![3], OverlayedValue { value: Some(vec![4]),
-				 extrinsics: vec![1].into_iter().collect() }),
-				(vec![100], OverlayedValue { value: Some(vec![101]),
-				 extrinsics: vec![NO_EXTRINSIC_INDEX].into_iter().collect() }),
-			].into_iter().collect());
+		assert_extrinsics(overlay.top, vec![1], vec![0, 2]);
+		assert_extrinsics(overlay.top, vec![3], vec![1]);
+		assert_extrinsics(overlay.top, vec![100], vec![NO_EXTRINSIC_INDEX]);
 
-		overlay.commit_prospective();
+		overlay.start_transaction();
 
 		overlay.set_extrinsic_index(3);
 		overlay.set_storage(vec![3], Some(vec![7]));
@@ -831,38 +836,15 @@ mod tests {
 		overlay.set_extrinsic_index(4);
 		overlay.set_storage(vec![1], Some(vec![8]));
 
-		assert_eq!(strip_extrinsic_index(&overlay.committed.top),
-			vec![
-				(vec![1], OverlayedValue { value: Some(vec![6]),
-				 extrinsics: vec![0, 2].into_iter().collect() }),
-				(vec![3], OverlayedValue { value: Some(vec![4]),
-				 extrinsics: vec![1].into_iter().collect() }),
-				(vec![100], OverlayedValue { value: Some(vec![101]),
-				 extrinsics: vec![NO_EXTRINSIC_INDEX].into_iter().collect() }),
-			].into_iter().collect());
+		assert_extrinsics(overlay.top, vec![1], vec![0, 2, 4]);
+		assert_extrinsics(overlay.top, vec![3], vec![1, 3]);
+		assert_extrinsics(overlay.top, vec![100], vec![NO_EXTRINSIC_INDEX]);
 
-		assert_eq!(strip_extrinsic_index(&overlay.prospective.top),
-			vec![
-				(vec![1], OverlayedValue { value: Some(vec![8]),
-				 extrinsics: vec![4].into_iter().collect() }),
-				(vec![3], OverlayedValue { value: Some(vec![7]),
-				 extrinsics: vec![3].into_iter().collect() }),
-			].into_iter().collect());
+		overlay.rollback_transaction();
 
-		overlay.commit_prospective();
-
-		assert_eq!(strip_extrinsic_index(&overlay.committed.top),
-			vec![
-				(vec![1], OverlayedValue { value: Some(vec![8]),
-				 extrinsics: vec![0, 2, 4].into_iter().collect() }),
-				(vec![3], OverlayedValue { value: Some(vec![7]),
-				 extrinsics: vec![1, 3].into_iter().collect() }),
-				(vec![100], OverlayedValue { value: Some(vec![101]),
-				 extrinsics: vec![NO_EXTRINSIC_INDEX].into_iter().collect() }),
-			].into_iter().collect());
-
-		assert_eq!(overlay.prospective,
-			Default::default());
+		assert_extrinsics(overlay.top, vec![1], vec![0, 2]);
+		assert_extrinsics(overlay.top, vec![3], vec![1]);
+		assert_extrinsics(overlay.top, vec![100], vec![NO_EXTRINSIC_INDEX]);
 	}
 
 	#[test]
