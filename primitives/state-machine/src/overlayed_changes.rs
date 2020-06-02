@@ -215,6 +215,26 @@ impl OverlayedValue {
 	fn tx_extrinsics_mut(&mut self) -> &mut BTreeSet<u32> {
 		&mut self.transactions.last_mut().expect("").extrinsics
 	}
+
+	fn set(
+		&mut self,
+		value: Option<StorageValue>,
+		first_write_in_tx: bool,
+		at_extrinsic: Option<u32>
+	) {
+		if first_write_in_tx || self.transactions.is_empty() {
+			self.transactions.push(InnerValue {
+				value,
+				.. Default::default()
+			});
+		} else {
+			*self.value_mut() = value;
+		}
+
+		if let Some(extrinsic) = at_extrinsic {
+			self.tx_extrinsics_mut().insert(extrinsic);
+		}
+	}
 }
 
 impl OverlayedChangeSet {
@@ -226,35 +246,41 @@ impl OverlayedChangeSet {
 		self.changes.get(key)
 	}
 
+	fn insert_dirty(set: &mut Vec<HashSet<StorageKey>>, key: StorageKey) -> bool {
+		if let Some(dirty_keys) = set.last_mut() {
+			dirty_keys.insert(key)
+		} else {
+			false
+		}
+	}
+
 	fn set(
 		&mut self,
 		key: &[u8],
-		val: Option<StorageValue>,
+		value: Option<StorageValue>,
 		at_extrinsic: Option<u32>
 	) -> &mut OverlayedValue
 	{
-		let first_write_in_tx = if let Some(dirty_keys) = self.dirty_keys.last_mut() {
-			dirty_keys.insert(key.to_vec())
-		} else {
-			false
-		};
+		let first_write_in_tx = Self::insert_dirty(&mut self.dirty_keys, key.to_owned());
+		let overlayed = self.changes.entry(key.to_vec()).or_insert_with(Default::default);
+		overlayed.set(value, first_write_in_tx, at_extrinsic);
+		overlayed
+	}
 
-		let value = self.changes.entry(key.to_vec()).or_insert_with(Default::default);
+	fn clear(
+		&mut self,
+		predicate: impl Fn(&[u8], &OverlayedValue) -> bool,
+		at_extrinsic: Option<u32>
+	)
+	{
+		for (key, val) in self.changes.iter_mut() {
+			if ! predicate(key, val) {
+				continue;
+			}
 
-		if first_write_in_tx || value.transactions.is_empty() {
-			value.transactions.push(InnerValue {
-				value: val,
-				.. Default::default()
-			});
-		} else {
-			*value.value_mut() = val;
+			let first_write_in_tx = Self::insert_dirty(&mut self.dirty_keys, key.to_owned());
+			val.set(None, first_write_in_tx, at_extrinsic);
 		}
-
-		if let Some(extrinsic) = at_extrinsic {
-			value.tx_extrinsics_mut().insert(extrinsic);
-		}
-
-		value
 	}
 
 	fn start_transaction(&mut self) {
@@ -412,10 +438,7 @@ impl OverlayedChanges {
 			.or_insert_with(|| (Default::default(), child_info.to_owned()));
 		let updatable = info.try_update(child_info);
 		debug_assert!(updatable);
-
-		for (key, _) in changeset.changes {
-			changeset.set(&key, None, extrinsic_index);
-		}
+		changeset.clear(|_, _| true, extrinsic_index);
 	}
 
 	/// Removes all key-value pairs which keys share the given prefix.
@@ -425,9 +448,7 @@ impl OverlayedChanges {
 	///
 	/// [`discard_prospective`]: #method.discard_prospective
 	pub(crate) fn clear_prefix(&mut self, prefix: &[u8]) {
-		for (key, _) in self.top.changes.iter().filter(|(key, _)| key.starts_with(prefix)) {
-			self.top.set(key, None, self.extrinsic_index());
-		}
+		self.top.clear(|key, _| key.starts_with(prefix), self.extrinsic_index());
 	}
 
 	pub(crate) fn clear_child_prefix(
@@ -441,29 +462,26 @@ impl OverlayedChanges {
 			.or_insert_with(|| (Default::default(), child_info.to_owned()));
 		let updatable = info.try_update(child_info);
 		debug_assert!(updatable);
-
-		for (key, _) in changeset.changes.iter().filter(|(key, _)| key.starts_with(prefix)) {
-			changeset.set(key, None, extrinsic_index);
-		}
+		changeset.clear(|key, _| key.starts_with(prefix), extrinsic_index);
 	}
 
 	pub fn start_transaction(&mut self) {
 		self.top.start_transaction();
-		for (_, (changeset, _)) in self.children {
+		for (_, (changeset, _)) in self.children.iter_mut() {
 			changeset.start_transaction();
 		}
 	}
 
 	pub fn rollback_transaction(&mut self) {
 		self.top.rollback_transaction();
-		for (_, (changeset, _)) in self.children {
+		for (_, (changeset, _)) in self.children.iter_mut() {
 			changeset.rollback_transaction();
 		}
 	}
 
 	pub fn commit_transaction(&mut self) {
 		self.top.commit_transaction();
-		for (_, (changeset, _)) in self.children {
+		for (_, (changeset, _)) in self.children.iter_mut() {
 			changeset.commit_transaction();
 		}
 	}
