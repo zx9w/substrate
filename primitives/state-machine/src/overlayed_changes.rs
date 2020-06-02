@@ -320,7 +320,6 @@ impl OverlayedChangeSet {
 				return;
 			}
 
-
 			let dropped_tx = value.transactions.pop().expect("Key was marked dirty for this tx");
 			*value.value_mut() = dropped_tx.value;
 			value.tx_extrinsics_mut().extend(dropped_tx.extrinsics);
