@@ -140,9 +140,8 @@ impl OverlayedChangeSet {
 		value: Option<StorageValue>,
 		at_extrinsic: Option<u32>
 	) {
-		let first_write_in_tx = insert_dirty(&mut self.dirty_keys, key.clone());
-		let overlayed = self.changes.entry(key).or_insert_with(Default::default);
-		overlayed.set(value, first_write_in_tx, at_extrinsic);
+		let overlayed = self.changes.entry(key.clone()).or_insert_with(Default::default);
+		overlayed.set(value, insert_dirty(&mut self.dirty_keys, key), at_extrinsic);
 	}
 
 	#[must_use = "A change was registered, so this value MUST be modified."]
@@ -152,14 +151,18 @@ impl OverlayedChangeSet {
 		init: impl Fn() -> StorageValue,
 		at_extrinsic: Option<u32>
 	) -> &mut Option<StorageValue> {
-		let first_write_in_tx = insert_dirty(&mut self.dirty_keys, key.clone());
-		let overlayed = self.changes.entry(key).or_insert_with(Default::default);
-		let prev = if let Some(val) = overlayed.transactions.last() {
-			val.value.clone()
-		} else {
-			Some(init())
-		};
-		overlayed.set(prev, first_write_in_tx, at_extrinsic);
+		let overlayed = self.changes.entry(key.clone()).or_insert_with(|| OverlayedValue {
+			transactions: vec![InnerValue {
+				value: Some(init()),
+				extrinsics: at_extrinsic.into_iter().collect::<BTreeSet<_>>(),
+			}]
+		});
+
+		// Avoid rewriting value with itself when it was already set in the current tx
+		if insert_dirty(&mut self.dirty_keys, key) {
+			overlayed.set(overlayed.value().cloned(), true, at_extrinsic);
+		}
+
 		overlayed.value_mut()
 	}
 
@@ -169,8 +172,7 @@ impl OverlayedChangeSet {
 		at_extrinsic: Option<u32>
 	) {
 		for (key, val) in self.changes.iter_mut().filter(|(k, v)| predicate(k, v)) {
-			let first_write_in_tx = insert_dirty(&mut self.dirty_keys, key.to_owned());
-			val.set(None, first_write_in_tx, at_extrinsic);
+			val.set(None, insert_dirty(&mut self.dirty_keys, key.to_owned()), at_extrinsic);
 		}
 	}
 
