@@ -55,6 +55,7 @@ pub struct OverlayedValue {
 	transactions: Vec<InnerValue>,
 }
 
+/// Holds a set of changes with the ability modify them using nested transactions.
 #[derive(Debug, Default, Clone)]
 pub struct OverlayedChangeSet {
 	/// Stores the changes that this overlay constitutes.
@@ -172,7 +173,7 @@ impl OverlayedChangeSet {
 
 	/// Set a new value for the specified key.
 	///
-	/// Changes made can be rolled back or comitted when if inside a transaction.
+	/// Can be rolled back or comitted when called inside a transaction.
 	pub fn set(
 		&mut self,
 		key: StorageKey,
@@ -185,7 +186,7 @@ impl OverlayedChangeSet {
 
 	/// Get a mutable reference for a value.
 	///
-	/// Changes made can be rolled back or committed if done inside a transaction.
+	/// Can be rolled back or comitted when called inside a transaction.
 	#[must_use = "A change was registered, so this value MUST be modified."]
 	pub fn modify(
 		&mut self,
@@ -210,7 +211,7 @@ impl OverlayedChangeSet {
 
 	/// Set all values to deleted which are matched by the predicate.
 	///
-	/// Changes made can be rolled back or committed if done inside a transaction.
+	/// Can be rolled back or comitted when called inside a transaction.
 	pub fn clear(
 		&mut self,
 		predicate: impl Fn(&[u8], &OverlayedValue) -> bool,
@@ -236,7 +237,7 @@ impl OverlayedChangeSet {
 	/// Consume this changeset and return all committed changes.
 	///
 	/// Panics:
-	/// Panics of there are open transactions: `transaction_depth() > 0`
+	/// Panics if there are open transactions: `transaction_depth() > 0`
 	pub fn drain_commited(self) -> impl Iterator<Item=(StorageKey, Option<StorageValue>)> {
 		assert!(self.transaction_depth() == 0);
 		self.changes.into_iter().map(|(k, mut v)| (k, v.pop_transaction().value))

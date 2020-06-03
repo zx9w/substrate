@@ -35,6 +35,7 @@ use sp_core::storage::{well_known_keys::EXTRINSIC_INDEX, ChildInfo};
 use sp_core::offchain::storage::OffchainOverlayedChanges;
 use hash_db::Hasher;
 
+/// Re-export of `changeset::OverlayedValue`.
 pub use self::changeset::OverlayedValue;
 
 /// Storage key.
@@ -49,10 +50,9 @@ pub type StorageCollection = Vec<(StorageKey, Option<StorageValue>)>;
 /// In memory arrays of storage values for multiple child tries.
 pub type ChildStorageCollection = Vec<(StorageKey, StorageCollection)>;
 
-/// The overlayed changes to state to be queried on top of the backend.
+/// The set of changes that are overlaid onto the backend.
 ///
-/// A transaction shares all prospective changes within an inner overlay
-/// that can be cleared.
+/// It allows changes to be modified using nestable transactions.
 #[derive(Debug, Default, Clone)]
 pub struct OverlayedChanges {
 	/// Top level storage changes.
@@ -158,7 +158,7 @@ impl<Transaction: Default, H: Hasher, N: BlockNumber> Default for StorageChanges
 }
 
 impl OverlayedChanges {
-	/// Whether the overlayed changes are empty.
+	/// Whether no changes are contained in the top nor in any of the child changes.
 	pub fn is_empty(&self) -> bool {
 		self.top.is_empty() && self.children.is_empty()
 	}
@@ -180,10 +180,11 @@ impl OverlayedChanges {
 		})
 	}
 
-	/// Returns mutable reference to current changed value (prospective).
-	/// If there is no value in the overlay, the default callback is used to initiate
-	/// the value.
-	/// Warning this function register a change, so the mutable reference MUST be modified.
+	/// Returns mutable reference to current value.
+	/// If there is no value in the overlay, the default callback is used to initiate the value.
+	/// Warning this function registers a change, so the mutable reference MUST be modified.
+	///
+	/// Can be rolled back or comitted when called inside a transaction.
 	#[must_use = "A change was registered, so this value MUST be modified."]
 	pub fn value_mut_or_insert_with(
 		&mut self,
@@ -214,18 +215,20 @@ impl OverlayedChanges {
 		None
 	}
 
-	/// Inserts the given key-value pair into the prospective change set.
+	/// Set a new value for the specified key.
 	///
-	/// `None` can be used to delete a value specified by the given key.
+	/// Can be rolled back or comitted when called inside a transaction.
 	pub(crate) fn set_storage(&mut self, key: StorageKey, val: Option<StorageValue>) {
 		let size_write = val.as_ref().map(|x| x.len() as u64).unwrap_or(0);
 		self.stats.tally_write_overlay(size_write);
 		self.top.set(key, val, self.extrinsic_index());
 	}
 
-	/// Inserts the given key-value pair into the prospective child change set.
+	/// Set a new value for the specified key and child.
 	///
 	/// `None` can be used to delete a value specified by the given key.
+	///
+	/// Can be rolled back or comitted when called inside a transaction.
 	pub(crate) fn set_child_storage(
 		&mut self,
 		child_info: &ChildInfo,
@@ -251,10 +254,7 @@ impl OverlayedChanges {
 
 	/// Clear child storage of given storage key.
 	///
-	/// NOTE that this doesn't take place immediately but written into the prospective
-	/// change set, and still can be reverted by [`discard_prospective`].
-	///
-	/// [`discard_prospective`]: #method.discard_prospective
+	/// Can be rolled back or comitted when called inside a transaction.
 	pub(crate) fn clear_child_storage(
 		&mut self,
 		child_info: &ChildInfo,
@@ -270,14 +270,14 @@ impl OverlayedChanges {
 
 	/// Removes all key-value pairs which keys share the given prefix.
 	///
-	/// NOTE that this doesn't take place immediately but written into the prospective
-	/// change set, and still can be reverted by [`discard_prospective`].
-	///
-	/// [`discard_prospective`]: #method.discard_prospective
+	/// Can be rolled back or comitted when called inside a transaction.
 	pub(crate) fn clear_prefix(&mut self, prefix: &[u8]) {
 		self.top.clear(|key, _| key.starts_with(prefix), self.extrinsic_index());
 	}
 
+	/// Removes all key-value pairs which keys share the given prefix.
+	///
+	/// Can be rolled back or comitted when called inside a transaction
 	pub(crate) fn clear_child_prefix(
 		&mut self,
 		child_info: &ChildInfo,
@@ -293,6 +293,8 @@ impl OverlayedChanges {
 	}
 
 	/// Returns the current nesting depth of the transaction stack.
+	///
+	/// A value of zero means that no transaction is open and changes are comitted on write.
 	pub fn transaction_depth(&self) -> usize {
 		// The top changeset and all child changesets transact in lockstep and are
 		// therefore always at the same transaction depth.
@@ -339,10 +341,12 @@ impl OverlayedChanges {
 		}
 	}
 
-	/// Consume `OverlayedChanges` and take committed set.
+	/// Consume all changes (top + children) and return them.
+	///
+	/// After calling this function no more changes are contained in this changeset.
 	///
 	/// Panics:
-	/// Will panic if there are any uncommitted prospective changes.
+	/// Panics if `transaction_depth() > 0`
 	fn drain_committed(&mut self) -> (
 		impl Iterator<Item=(StorageKey, Option<StorageValue>)>,
 		impl Iterator<Item=(StorageKey, (impl Iterator<Item=(StorageKey, Option<StorageValue>)>, ChildInfo))>,
@@ -359,23 +363,20 @@ impl OverlayedChanges {
 		)
 	}
 
-	/// Get an iterator over all pending and committed child tries in the overlay.
+	/// Get an iterator over all child changes as seen by the current transaction.
 	pub fn children(&self)
 		-> impl Iterator<Item=(impl Iterator<Item=(&StorageKey, &OverlayedValue)>, &ChildInfo)> {
 		self.children.iter().map(|(_, v)| (v.0.changes(), &v.1))
 	}
 
-	/// Get an iterator over all pending and committed changes.
-	///
-	/// Supplying `None` for `child_info` will only return changes that are in the top
-	/// trie. Specifying some `child_info` will return only the changes in that
-	/// child trie.
+	/// Get an iterator over all top changes as been by the current transaction.
 	pub fn changes(&self) -> impl Iterator<Item=(&StorageKey, &OverlayedValue)> {
 		self.top.changes()
 	}
 
-	/// Return all changes in this overlay for the child trie that is saved under the pass key.
-	pub fn child_changes(&self, key: &[u8]) -> Option<(impl Iterator<Item=(&StorageKey, &OverlayedValue)>, &ChildInfo)> {
+	/// Get an optional iterator over all child changes stored under the supplied key.
+	pub fn child_changes(&self, key: &[u8]
+	) -> Option<(impl Iterator<Item=(&StorageKey, &OverlayedValue)>, &ChildInfo)> {
 		self.children.get(key).map(|(overlay, info)| (overlay.changes(), info))
 	}
 
@@ -459,7 +460,8 @@ impl OverlayedChanges {
 		}
 	}
 
-	/// Generate the storage root using `backend` and all changes from `prospective` and `committed`.
+	/// Generate the storage root using `backend` and all changes
+	/// as seen by the current transaction.
 	///
 	/// Returns the storage root and caches storage transaction in the given `cache`.
 	pub fn storage_root<H: Hasher, N: BlockNumber, B: Backend<H>>(
