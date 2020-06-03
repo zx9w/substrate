@@ -190,14 +190,7 @@ impl OverlayedChanges {
 		key: &[u8],
 		init: impl Fn() -> StorageValue,
 	) -> &mut StorageValue {
-		let previous = if let Some(prev) = self.top.get(key) {
-			prev.value().cloned()
-		} else {
-			Some(init())
-		};
-
-		let overlayed = self.top.set(key.to_owned(), previous, self.extrinsic_index());
-		let value = overlayed.value_mut();
+		let value = self.top.modify(key.to_owned(), init, self.extrinsic_index());
 
 		if value.is_none() {
 			*value = Some(Default::default());

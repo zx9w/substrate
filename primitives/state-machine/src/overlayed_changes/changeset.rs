@@ -66,7 +66,7 @@ impl OverlayedValue {
 		self.transactions.iter().flat_map(|t| t.extrinsics.iter()).unique()
 	}
 
-	pub fn value_mut(&mut self) -> &mut Option<StorageValue> {
+	fn value_mut(&mut self) -> &mut Option<StorageValue> {
 		&mut self.transactions.last_mut()
 			.expect("A StorageValue is always initialized with one value.\
 			The last element is never removed as those are committed changes.")
@@ -128,12 +128,39 @@ impl OverlayedChangeSet {
 		key: StorageKey,
 		value: Option<StorageValue>,
 		at_extrinsic: Option<u32>
-	) -> &mut OverlayedValue
-	{
+	) {
 		let first_write_in_tx = insert_dirty(&mut self.dirty_keys, key.clone());
 		let overlayed = self.changes.entry(key).or_insert_with(Default::default);
 		overlayed.set(value, first_write_in_tx, at_extrinsic);
-		overlayed
+	}
+
+	#[must_use = "A change was registered, so this value MUST be modified."]
+	pub fn modify(
+		&mut self,
+		key: StorageKey,
+		init: impl Fn() -> StorageValue,
+		at_extrinsic: Option<u32>
+	) -> &mut Option<StorageValue> {
+		let first_write_in_tx = insert_dirty(&mut self.dirty_keys, key.clone());
+		let overlayed = self.changes.entry(key).or_insert_with(Default::default);
+		let prev = if let Some(val) = overlayed.transactions.last() {
+			val.value.clone()
+		} else {
+			Some(init())
+		};
+		overlayed.set(prev, first_write_in_tx, at_extrinsic);
+		overlayed.value_mut()
+	}
+
+	pub fn clear(
+		&mut self,
+		predicate: impl Fn(&[u8], &OverlayedValue) -> bool,
+		at_extrinsic: Option<u32>
+	) {
+		for (key, val) in self.changes.iter_mut().filter(|(k, v)| predicate(k, v)) {
+			let first_write_in_tx = insert_dirty(&mut self.dirty_keys, key.to_owned());
+			val.set(None, first_write_in_tx, at_extrinsic);
+		}
 	}
 
 	pub fn changes(&self) -> impl Iterator<Item=(&StorageKey, &OverlayedValue)> {
@@ -144,18 +171,6 @@ impl OverlayedChangeSet {
 		use std::ops::Bound;
 		let range = (Bound::Excluded(key), Bound::Unbounded);
 		self.changes.range::<[u8], _>(range).next().map(|(k, v)| (&k[..], v))
-	}
-
-	pub fn clear(
-		&mut self,
-		predicate: impl Fn(&[u8], &OverlayedValue) -> bool,
-		at_extrinsic: Option<u32>
-	)
-	{
-		for (key, val) in self.changes.iter_mut().filter(|(k, v)| predicate(k, v)) {
-			let first_write_in_tx = insert_dirty(&mut self.dirty_keys, key.to_owned());
-			val.set(None, first_write_in_tx, at_extrinsic);
-		}
 	}
 
 	pub fn drain_commited(self) -> impl Iterator<Item=(StorageKey, Option<StorageValue>)> {
