@@ -3,6 +3,19 @@ use super::{StorageKey, StorageValue};
 use itertools::Itertools;
 use std::collections::{HashSet, BTreeMap, BTreeSet};
 
+const PROOF_DIRTY_KEYS: &str = "\
+	We assume transactions are balanced. Every start of a transaction created one dirty
+	keys element. This function is only called on transaction close. Therefore an element
+	created by the start transaction must exist; qed";
+
+const PROOF_DIRTY_OVERLAY_VALUE: &str = "\
+	A write to an OverlayedValue is recorded in the dirty key set. This function is only called
+	for keys that where written at least once. Therefore the entry must exist; qed";
+
+const PROOF_OVERLAY_NON_EMPTY: &str = "\
+	An OverlayValue is always created with at least one transaction and dropped as soon
+	as the last transaction is removed; qed";
+
 #[derive(Debug, Default, Clone)]
 #[cfg_attr(test, derive(PartialEq))]
 struct InnerValue {
@@ -54,11 +67,7 @@ impl From<Option<StorageValue>> for OverlayedValue {
 impl OverlayedValue {
 	/// The most recent value contained in this overlay.
 	pub fn value(&self) -> Option<&StorageValue> {
-		self.transactions.last()
-			.expect("A StorageValue is always initialized with one value.\
-			The last element is never removed as those are committed changes.")
-			.value
-			.as_ref()
+		self.transactions.last().expect(PROOF_OVERLAY_NON_EMPTY).value.as_ref()
 	}
 
 	/// List of indices of extrinsics which modified the value using this overlay.
@@ -67,14 +76,15 @@ impl OverlayedValue {
 	}
 
 	fn value_mut(&mut self) -> &mut Option<StorageValue> {
-		&mut self.transactions.last_mut()
-			.expect("A StorageValue is always initialized with one value.\
-			The last element is never removed as those are committed changes.")
-			.value
+		&mut self.transactions.last_mut().expect(PROOF_OVERLAY_NON_EMPTY).value
 	}
 
-	fn tx_extrinsics_mut(&mut self) -> &mut BTreeSet<u32> {
-		&mut self.transactions.last_mut().expect("").extrinsics
+	fn pop_transaction(&mut self) -> InnerValue {
+		self.transactions.pop().expect(PROOF_OVERLAY_NON_EMPTY)
+	}
+
+	fn transaction_extrinsics_mut(&mut self) -> &mut BTreeSet<u32> {
+		&mut self.transactions.last_mut().expect(PROOF_OVERLAY_NON_EMPTY).extrinsics
 	}
 
 	fn set(
@@ -93,7 +103,7 @@ impl OverlayedValue {
 		}
 
 		if let Some(extrinsic) = at_extrinsic {
-			self.tx_extrinsics_mut().insert(extrinsic);
+			self.transaction_extrinsics_mut().insert(extrinsic);
 		}
 	}
 }
@@ -175,9 +185,7 @@ impl OverlayedChangeSet {
 
 	pub fn drain_commited(self) -> impl Iterator<Item=(StorageKey, Option<StorageValue>)> {
 		assert!(self.transaction_depth() == 0);
-		self.changes
-			.into_iter()
-			.map(|(k, mut v)| (k, v.transactions.pop().expect("Always at least one value").value))
+		self.changes.into_iter().map(|(k, mut v)| (k, v.pop_transaction().value))
 	}
 
 	/// Returns the current nesting depth of the transaction stack.
@@ -190,40 +198,46 @@ impl OverlayedChangeSet {
 	}
 
 	pub fn rollback_transaction(&mut self) {
-		for key in self.dirty_keys.pop().expect("Transactions must be balanced.") {
-			let value = self.changes.get_mut(&key).expect("Key was marked as dirty.");
-			value.transactions.pop();
-
-			// We need to remove the key as an `OverlayValue` with no contents
-			// violates its invariant of always having at least one value.
-			if value.transactions.is_empty() {
-				self.changes.remove(&key);
-			}
-		}
+		self.close_transaction(true);
 	}
 
 	pub fn commit_transaction(&mut self) {
-		for key in self.dirty_keys.pop().expect("Transactions must be balanced.") {
-			let value = self.changes.get_mut(&key).expect("Key was marked as dirty.");
-			let merge_tx = ! if let Some(dirty_keys) = self.dirty_keys.last_mut() {
-				// Not the last tx: Did the previous tx write to this key?
-				dirty_keys.insert(key)
+		self.close_transaction(false);
+	}
+
+	fn close_transaction(&mut self, rollback: bool) {
+		for key in self.dirty_keys.pop().expect(PROOF_DIRTY_KEYS) {
+			let value = self.changes.get_mut(&key).expect(PROOF_DIRTY_OVERLAY_VALUE);
+
+			if rollback {
+				value.pop_transaction();
+
+				// We need to remove the key as an `OverlayValue` with no transactions
+				// violates its invariant of always having at least one transaction.
+				if value.transactions.is_empty() {
+					self.changes.remove(&key);
+				}
 			} else {
-				// Last tx: Is there already a value in the committed set?
-				// Check against one rather than empty because the current tx is still
-				// in the list as it is popped later in this function.
-				value.transactions.len() == 1
-			};
+				let no_predecessor = if let Some(dirty_keys) = self.dirty_keys.last_mut() {
+					// Not the last tx: Did the previous tx write to this key?
+					dirty_keys.insert(key)
+				} else {
+					// Last tx: Is there already a value in the committed set?
+					// Check against one rather than empty because the current tx is still
+					// in the list as it is popped later in this function.
+					value.transactions.len() == 1
+				};
 
-			// No need to merge if the previous tx has never written to this key.
-			// We just use the current tx as the previous one.
-			if ! merge_tx {
-				return;
+				// The previous tx or committed set holds no value for this key.
+				// We just use the current tx as the previous one.
+				if no_predecessor {
+					return;
+				}
+
+				let dropped_tx = value.pop_transaction();
+				*value.value_mut() = dropped_tx.value;
+				value.transaction_extrinsics_mut().extend(dropped_tx.extrinsics);
 			}
-
-			let dropped_tx = value.transactions.pop().expect("Key was marked dirty for this tx");
-			*value.value_mut() = dropped_tx.value;
-			value.tx_extrinsics_mut().extend(dropped_tx.extrinsics);
 		}
 	}
 }
