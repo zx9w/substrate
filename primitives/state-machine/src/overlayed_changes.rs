@@ -323,9 +323,10 @@ impl OverlayedChanges {
 	/// Will panic if there is no open transaction.
 	pub fn rollback_transaction(&mut self) {
 		self.top.rollback_transaction();
-		for (_, (changeset, _)) in self.children.iter_mut() {
+		self.children.retain(|_, (changeset, _)| {
 			changeset.rollback_transaction();
-		}
+			!changeset.is_empty()
+		});
 	}
 
 	/// Commit the last transaction started by `start_transaction`.
