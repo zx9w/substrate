@@ -26,6 +26,7 @@ num-traits = "0.2.8"
 rand = "0.7.2"
 sp-externalities = { version = "0.8.0-rc2", path = "../externalities" }
 itertools = "0.9"
+smallvec = "1.4"
 
 [dev-dependencies]
 hex-literal = "0.2.1"

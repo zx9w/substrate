@@ -21,6 +21,7 @@ use super::{StorageKey, StorageValue};
 
 use itertools::Itertools;
 use std::collections::{HashSet, BTreeMap, BTreeSet};
+use smallvec::{SmallVec, smallvec};
 
 const PROOF_DIRTY_KEYS: &str = "\
 	We assume transactions are balanced. Every start of a transaction created one dirty
@@ -35,6 +36,9 @@ const PROOF_DIRTY_OVERLAY_VALUE: &str = "\
 const PROOF_OVERLAY_NON_EMPTY: &str = "\
 	An OverlayValue is always created with at least one transaction and dropped as soon
 	as the last transaction is removed; qed";
+
+type DirtyKeys = SmallVec<[HashSet<StorageKey>; 5]>;
+type Transactions = SmallVec<[InnerValue; 5]>;
 
 #[derive(Debug, Default, Clone)]
 #[cfg_attr(test, derive(PartialEq))]
@@ -52,7 +56,7 @@ struct InnerValue {
 pub struct OverlayedValue {
 	// The individual versions of that value.
 	// One entry per transactions during that the value was actually written.
-	transactions: Vec<InnerValue>,
+	transactions: Transactions,
 }
 
 /// Holds a set of changes with the ability modify them using nested transactions.
@@ -63,7 +67,7 @@ pub struct OverlayedChangeSet {
 	/// Stores which keys are dirty per transaction. Needed in order to determine which
 	/// values to merge into the parent transaction on commit. The length of this vector
 	/// therefore determines how many nested transactions are currently open (depth).
-	dirty_keys: Vec<HashSet<StorageKey>>,
+	dirty_keys: DirtyKeys,
 }
 
 #[cfg(test)]
@@ -80,7 +84,7 @@ impl std::iter::FromIterator<(StorageKey, OverlayedValue)> for OverlayedChangeSe
 impl From<Option<StorageValue>> for OverlayedValue {
 	fn from(value: Option<StorageValue>) -> OverlayedValue {
 		OverlayedValue {
-			transactions: vec![InnerValue {
+			transactions: smallvec![InnerValue {
 				value,
 				.. Default::default()
 			}]
@@ -143,7 +147,7 @@ impl OverlayedValue {
 //
 // Returns true iff we are currently have at least one open transaction and if this
 // is the first write to that transaction.
-fn insert_dirty(set: &mut Vec<HashSet<StorageKey>>, key: StorageKey) -> bool {
+fn insert_dirty(set: &mut DirtyKeys, key: StorageKey) -> bool {
 	if let Some(dirty_keys) = set.last_mut() {
 		dirty_keys.insert(key)
 	} else {
@@ -195,7 +199,7 @@ impl OverlayedChangeSet {
 		at_extrinsic: Option<u32>
 	) -> &mut Option<StorageValue> {
 		let overlayed = self.changes.entry(key.clone()).or_insert_with(|| OverlayedValue {
-			transactions: vec![InnerValue {
+			transactions: smallvec![InnerValue {
 				value: Some(init()),
 				extrinsics: at_extrinsic.into_iter().collect::<BTreeSet<_>>(),
 			}]
