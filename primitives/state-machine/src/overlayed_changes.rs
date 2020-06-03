@@ -515,7 +515,7 @@ impl OverlayedChanges {
 	/// Returns the next (in lexicographic order) storage key in the overlayed alongside its value.
 	/// If no value is next then `None` is returned.
 	pub fn next_storage_key_change(&self, key: &[u8]) -> Option<(&[u8], &OverlayedValue)> {
-		self.top.next_key(key)
+		self.top.next_change(key)
 	}
 
 	/// Returns the next (in lexicographic order) child storage key in the overlayed alongside its
@@ -528,7 +528,7 @@ impl OverlayedChanges {
 		self.children
 			.get(storage_key)
 			.and_then(|(overlay, _)|
-				overlay.next_key(key)
+				overlay.next_change(key)
 			)
 	}
 }
