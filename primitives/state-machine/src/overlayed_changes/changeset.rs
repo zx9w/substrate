@@ -6,11 +6,12 @@ use std::collections::{HashSet, BTreeMap, BTreeSet};
 const PROOF_DIRTY_KEYS: &str = "\
 	We assume transactions are balanced. Every start of a transaction created one dirty
 	keys element. This function is only called on transaction close. Therefore an element
-	created by the start transaction must exist; qed";
+	created when starting the transaction must exist; qed";
 
 const PROOF_DIRTY_OVERLAY_VALUE: &str = "\
-	A write to an OverlayedValue is recorded in the dirty key set. This function is only called
-	for keys that where written at least once. Therefore the entry must exist; qed";
+	A write to an OverlayedValue is recorded in the dirty key set. Before an OverlayedValues
+	is removed its containing dirty set is removed. This function is only called for keys that
+	are in the dirty set. Therefore the entry must exist; qed";
 
 const PROOF_OVERLAY_NON_EMPTY: &str = "\
 	An OverlayValue is always created with at least one transaction and dropped as soon
